@@ -1,0 +1,37 @@
+# macOS / Windows noise
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs and runtime output
+logs/
+output/
+*.log
+*.pid
+
+# Local environment / secrets
+.env
+.env.*
+*.local
+
+# Local config overrides
+conf/*.yaml
+!conf/config.yaml.example
+
+# Go build / test artifacts
+friday
+friday.exe
+bin/
+dist/
+*.test
+coverage.out
+coverage-*.out
+*.coverprofile
+*.pprof
+
