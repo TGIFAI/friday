@@ -56,7 +56,20 @@ type jsonlMessageRecord struct {
 	Message *schema.Message `json:"msg"`
 }
 
-func NewJSONLStore(root string) (Store, error) {
+func NewJSONLManager(agentID string, workspace string) (*Manager, error) {
+	if workspace == "" {
+		return nil, fmt.Errorf("workspace cannot be empty")
+	}
+
+	storePath := filepath.Join(workspace, "memory", "sessions")
+	store, err := newJSONLStore(storePath)
+	if err != nil {
+		return nil, err
+	}
+	return NewManager(agentID, ManagerOptions{Store: store}), nil
+}
+
+func newJSONLStore(root string) (Store, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve storage path: %w", err)
@@ -152,7 +165,7 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 	}
 
 	sess := &Session{
-		sessionKey:      sessionKey,
+		SessionKey:      sessionKey,
 		AgentID:         meta.AgentID,
 		Channel:         channel.Type(meta.Channel),
 		UserID:          meta.UserID,
@@ -160,6 +173,8 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 		createTime:      meta.CreatedAt,
 		updateTime:      meta.UpdatedAt,
 		expireAt:        meta.ExpireAt,
+		msgCnt:          meta.MsgCount,
+		toolCallCnt:     meta.ToolCallCnt,
 		persistedMsgLen: len(msgs),
 	}
 	if sess.createTime.IsZero() {
@@ -168,8 +183,6 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 	if sess.updateTime.IsZero() {
 		sess.updateTime = sess.createTime
 	}
-	sess.msgCnt.Store(meta.MsgCount)
-	sess.toolCallCnt.Store(meta.ToolCallCnt)
 
 	if sess.AgentID == "" || sess.Channel == "" || sess.UserID == "" {
 		agentID, ch, userID, parseErr := ParseKey(sessionKey)
@@ -195,35 +208,64 @@ func (s *jsonlStore) Save(ctx context.Context, sess *Session) error {
 		return nil
 	}
 
-	lock := s.sessionLock(sess.sessionKey)
+	lock := s.sessionLock(sess.SessionKey)
 	lock.Lock()
 	defer lock.Unlock()
 
-	snap := sess.snapshotForSave()
-	if !snap.dirty {
+	sess.mu.RLock()
+	dirty := sess.dirty
+	version := sess.version
+	persistedMsgLen := sess.persistedMsgLen
+	appendSaveCnt := sess.appendSaveCnt
+	messages := make([]*schema.Message, len(sess.messages))
+	copy(messages, sess.messages)
+
+	meta := jsonlMetadataRecord{
+		Type:        "meta",
+		SessionKey:  sess.SessionKey,
+		AgentID:     sess.AgentID,
+		Channel:     string(sess.Channel),
+		UserID:      sess.UserID,
+		CreatedAt:   sess.createTime,
+		UpdatedAt:   sess.updateTime,
+		ExpireAt:    sess.expireAt,
+		MsgCount:    sess.msgCnt,
+		ToolCallCnt: sess.toolCallCnt,
+		Format:      jsonlFormat,
+		Schema:      jsonlSchema,
+	}
+	sess.mu.RUnlock()
+
+	if !dirty {
 		return nil
 	}
 
-	meta := metadataFromSnapshot(snap)
+	if meta.CreatedAt.IsZero() {
+		meta.CreatedAt = time.Now()
+	}
+	if meta.UpdatedAt.IsZero() {
+		meta.UpdatedAt = time.Now()
+	}
+
 	metaLine, err := sonic.MarshalString(meta)
 	if err != nil {
 		return fmt.Errorf("marshal metadata: %w", err)
 	}
 
-	path := s.sessionFile(snap.sessionKey)
-	currentMsgLen := len(snap.messages)
-	if snap.persistedMsgLen > currentMsgLen {
-		snap.persistedMsgLen = currentMsgLen
+	path := s.sessionFile(sess.SessionKey)
+	currentMsgLen := len(messages)
+	if persistedMsgLen > currentMsgLen {
+		persistedMsgLen = currentMsgLen
 	}
 
-	needCompact := snap.persistedMsgLen == 0
+	needCompact := persistedMsgLen == 0
 	if info, statErr := os.Stat(path); statErr != nil {
 		if !os.IsNotExist(statErr) {
 			return fmt.Errorf("stat session file: %w", statErr)
 		}
 		needCompact = true
 	} else {
-		if s.compactEvery > 0 && snap.appendSaveCnt >= s.compactEvery {
+		if s.compactEvery > 0 && appendSaveCnt >= s.compactEvery {
 			needCompact = true
 		}
 		if s.compactMaxSize > 0 && info.Size() >= s.compactMaxSize {
@@ -232,46 +274,37 @@ func (s *jsonlStore) Save(ctx context.Context, sess *Session) error {
 	}
 
 	if needCompact {
-		if err := s.rewrite(path, metaLine, snap.messages); err != nil {
+		if err := s.rewrite(path, metaLine, messages); err != nil {
 			return err
 		}
-		sess.markPersisted(currentMsgLen, true, snap.version)
+		s.markPersisted(sess, currentMsgLen, true, version)
 		return nil
 	}
 
-	start := snap.persistedMsgLen
+	start := persistedMsgLen
 	if start < 0 || start > currentMsgLen {
 		start = 0
 	}
-	if err := s.append(path, metaLine, snap.messages[start:]); err != nil {
+	if err := s.appendFile(path, metaLine, messages[start:]); err != nil {
 		return err
 	}
-	sess.markPersisted(currentMsgLen, false, snap.version)
+	s.markPersisted(sess, currentMsgLen, false, version)
 	return nil
 }
 
-func metadataFromSnapshot(snap sessionSnapshot) jsonlMetadataRecord {
-	meta := jsonlMetadataRecord{
-		Type:        "meta",
-		SessionKey:  snap.sessionKey,
-		AgentID:     snap.agentID,
-		Channel:     string(snap.channel),
-		UserID:      snap.userID,
-		CreatedAt:   snap.createTime,
-		UpdatedAt:   snap.updateTime,
-		ExpireAt:    snap.expireAt,
-		MsgCount:    snap.msgCnt,
-		ToolCallCnt: snap.toolCallCnt,
-		Format:      jsonlFormat,
-		Schema:      jsonlSchema,
+func (s *jsonlStore) markPersisted(sess *Session, msgLen int, compacted bool, expectedVersion uint64) {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+
+	sess.persistedMsgLen = msgLen
+	if compacted {
+		sess.appendSaveCnt = 0
+	} else {
+		sess.appendSaveCnt++
 	}
-	if meta.CreatedAt.IsZero() {
-		meta.CreatedAt = time.Now()
+	if sess.version == expectedVersion {
+		sess.dirty = false
 	}
-	if meta.UpdatedAt.IsZero() {
-		meta.UpdatedAt = time.Now()
-	}
-	return meta
 }
 
 func (s *jsonlStore) rewrite(path string, metaLine string, messages []*schema.Message) error {
@@ -305,7 +338,7 @@ func (s *jsonlStore) rewrite(path string, metaLine string, messages []*schema.Me
 	return nil
 }
 
-func (s *jsonlStore) append(path string, metaLine string, messages []*schema.Message) error {
+func (s *jsonlStore) appendFile(path string, metaLine string, messages []*schema.Message) error {
 	out, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("open session file for append: %w", err)

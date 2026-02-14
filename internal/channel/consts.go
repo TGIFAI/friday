@@ -34,16 +34,13 @@ type Message struct {
 }
 
 type Response struct {
-	ID               string
-	ChatID           string
-	Content          string
-	Error            error
-	Metadata         map[string]string
-	Model            string
-	Provider         string
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
+	ID       string
+	ChatID   string
+	Content  string
+	Error    error
+	Metadata map[string]string
+	Model    string
+	Provider string
 }
 
 type ChatAction string

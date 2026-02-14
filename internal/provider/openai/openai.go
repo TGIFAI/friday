@@ -28,19 +28,20 @@ type Provider struct {
 	mu sync.RWMutex
 }
 
-func NewProvider(ctx context.Context, config Config) (*Provider, error) {
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+func NewProvider(ctx context.Context, id string, cfgMap map[string]any) (*Provider, error) {
+	cfg, err := ParseConfig(id, cfgMap)
+	if err != nil {
+		return nil, fmt.Errorf("parse openai config: %w", err)
 	}
 
 	p := &Provider{
-		config:          config,
+		config:          *cfg,
 		modelMap:        make(map[string]*openai.ChatModel, 4),
 		availableModels: make([]provider.ModelInfo, 0),
 		isAvailable:     false,
 		closeCh:         make(chan struct{}),
 		httpCli: &http.Client{
-			Timeout:   config.Timeout,
+			Timeout:   cfg.Timeout,
 			Transport: &http.Transport{ForceAttemptHTTP2: true},
 		},
 	}

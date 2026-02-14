@@ -12,6 +12,8 @@ import (
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
+const defaultGCInterval = 10 * time.Minute
+
 type ManagerOptions struct {
 	Store Store
 	TTL   time.Duration
@@ -43,12 +45,12 @@ func (m *Manager) AgentID() string {
 	return m.agentID
 }
 
-func (m *Manager) BuildKey(channelType channel.Type, userID string) string {
-	return GenerateKey(m.agentID, channelType, userID)
+func (m *Manager) BuildKey(channelType channel.Type, chatID string) string {
+	return GenerateKey(m.agentID, channelType, chatID)
 }
 
-func (m *Manager) GetOrCreateFor(channelType channel.Type, userID string) *Session {
-	return m.GetOrCreate(m.BuildKey(channelType, userID))
+func (m *Manager) GetOrCreateFor(channelType channel.Type, chatID string) *Session {
+	return m.GetOrCreate(m.BuildKey(channelType, chatID))
 }
 
 func (m *Manager) GetOrCreate(sessKey string) *Session {
@@ -83,7 +85,7 @@ func (m *Manager) Create(sessKey string) *Session {
 
 	timeNow := time.Now()
 	sess := &Session{
-		sessionKey: sessKey,
+		SessionKey: sessKey,
 		messages:   make([]*schema.Message, 0, 8),
 		createTime: timeNow,
 		updateTime: timeNow,
@@ -152,6 +154,33 @@ func (m *Manager) GC() (int, error) {
 		return 0, nil
 	}
 	return store.GC(context.Background(), time.Now())
+}
+
+func (m *Manager) StartGCLoop(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = defaultGCInterval
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				removed, err := m.GC()
+				if err != nil {
+					logs.CtxWarn(ctx, "[session] GC failed: %v", err)
+					continue
+				}
+				if removed > 0 {
+					logs.CtxInfo(ctx, "[session] GC removed %d expired session file(s)", removed)
+				}
+			}
+		}
+	}()
 }
 
 func (m *Manager) getStore() Store {

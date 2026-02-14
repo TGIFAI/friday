@@ -7,7 +7,12 @@ import (
 	"github.com/bytedance/gg/gmap"
 )
 
-var defaultRegistry = NewRegistry()
+var (
+	defaultRegistry = NewRegistry()
+
+	Get      = defaultRegistry.Get
+	Register = defaultRegistry.Register
+)
 
 type Registry struct {
 	providers map[string]Provider
@@ -57,14 +62,6 @@ func (r *Registry) Unregister(id string) {
 		delete(r.providers, id)
 		r.cnt.Add(-1)
 	}
-}
-
-func Register(p Provider) error {
-	return defaultRegistry.Register(p)
-}
-
-func Get(id string) (Provider, error) {
-	return defaultRegistry.Get(id)
 }
 
 func List() []Provider {

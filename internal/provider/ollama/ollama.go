@@ -26,19 +26,20 @@ type Provider struct {
 	mu        sync.RWMutex
 }
 
-func NewProvider(_ context.Context, config Config) (*Provider, error) {
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider, error) {
+	cfg, err := ParseConfig(id, cfgMap)
+	if err != nil {
+		return nil, fmt.Errorf("parse ollama config: %w", err)
 	}
 
-	baseURL, err := url.Parse(config.BaseURL)
+	baseURL, err := url.Parse(cfg.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base url: %w", err)
 	}
 
-	httpCli := &http.Client{Timeout: config.Timeout}
+	httpCli := &http.Client{Timeout: cfg.Timeout}
 	return &Provider{
-		config:    config,
+		config:    *cfg,
 		modelMap:  make(map[string]*ollamamodel.ChatModel, 4),
 		httpCli:   httpCli,
 		modelsCli: ollamaapi.NewClient(baseURL, httpCli),

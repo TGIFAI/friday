@@ -32,8 +32,9 @@ var WorkspaceMarkdownFiles = []string{
 	"TOOLS.md",
 	"IDENTITY.md",
 	"HEARTBEAT.md",
-	"memory/MEMORY.md",
 }
+
+const WorkspaceMemoryFile = "memory/MEMORY.md"
 
 var WorkspaceMarkdownTemplates = map[string]string{
 	"AGENTS.md":        WorkspaceAgentsTemplate,

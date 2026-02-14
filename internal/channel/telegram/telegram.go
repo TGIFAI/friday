@@ -13,6 +13,8 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/tgifai/friday/internal/channel"
+	"github.com/tgifai/friday/internal/config"
+	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/pkg/utils"
 	"github.com/tgifai/friday/internal/security/pairing"
@@ -40,10 +42,13 @@ type Telegram struct {
 	cancel  context.CancelFunc
 }
 
-func NewChannel(chanId string, cfg *Config) (channel.Channel, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid cfg: %w", err)
+func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, error) {
+	cfg, err := ParseConfig(chCfg.Config)
+	if err != nil {
+		return nil, fmt.Errorf("parse telegram config: %w", err)
 	}
+	cfg.Security = chCfg.Security
+	cfg.ACL = chCfg.ACL
 
 	opts := []bot.Option{
 		bot.WithDefaultHandler(defaultHandler),
@@ -75,15 +80,11 @@ func (c *Telegram) Type() channel.Type {
 }
 
 func (c *Telegram) Start(ctx context.Context) error {
-
-	mergedCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	if c.config.WebhookURL != "" && c.config.WebhookPort > 0 {
-		return c.startWebhook(mergedCtx)
+		return c.startWebhook(ctx)
 	}
 
-	return c.startPolling(mergedCtx)
+	return c.startPolling(ctx)
 }
 
 func (c *Telegram) startPolling(ctx context.Context) error {
@@ -306,7 +307,7 @@ func (c *Telegram) handleMessage(ctx context.Context, b *bot.Bot, update *models
 }
 
 func (c *Telegram) isPairingEnabled() bool {
-	return c.pairing != nil
+	return c.config.Security.Policy != "" && c.config.Security.Policy != consts.SecurityPolicySilent
 }
 
 func (c *Telegram) handlePairingIngress(ctx context.Context, b *bot.Bot, msg *models.Message) bool {

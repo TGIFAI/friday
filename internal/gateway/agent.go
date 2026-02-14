@@ -6,21 +6,16 @@ import (
 	"sync"
 
 	"github.com/bytedance/gg/gmap"
-	"golang.org/x/crypto/ssh/agent"
+
+	"github.com/tgifai/friday/internal/agent"
 )
 
-type AgentRegistry struct {
+type agentRegistry struct {
 	agents map[string]*agent.Agent
 	mu     sync.RWMutex
 }
 
-func NewAgentRegistry() *AgentRegistry {
-	return &AgentRegistry{
-		agents: make(map[string]*agent.Agent, 8),
-	}
-}
-
-func (r *AgentRegistry) Register(agent *agent.Agent) error {
+func (r *agentRegistry) Register(agent *agent.Agent) error {
 	if agent == nil {
 		return errors.New("agent cannot be nil")
 	}
@@ -39,7 +34,7 @@ func (r *AgentRegistry) Register(agent *agent.Agent) error {
 	return nil
 }
 
-func (r *AgentRegistry) Get(agentID string) (*agent.Agent, error) {
+func (r *agentRegistry) Get(agentID string) (*agent.Agent, error) {
 	if agentID == "" {
 		return nil, errors.New("agent ID cannot be empty")
 	}
@@ -55,7 +50,7 @@ func (r *AgentRegistry) Get(agentID string) (*agent.Agent, error) {
 	return ag, nil
 }
 
-func (r *AgentRegistry) List() []*agent.Agent {
+func (r *agentRegistry) List() []*agent.Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

@@ -1,4 +1,4 @@
-package msg
+package main
 
 import (
 	"context"
@@ -13,8 +13,12 @@ import (
 	"github.com/tgifai/friday/internal/config"
 )
 
-var (
-	Command = &cli.Command{
+var msgHwd = &MsgRunner{}
+
+type MsgRunner struct{}
+
+func (r *MsgRunner) cmd() *cli.Command {
+	return &cli.Command{
 		Name:  "msg",
 		Usage: "Send a one-off message through a configured channel",
 		Flags: []cli.Flag{
@@ -39,28 +43,25 @@ var (
 				Usage:   "Message body",
 			},
 		},
-		Action: runMessage,
+		Action: r.run,
 	}
-)
+}
 
-func runMessage(ctx context.Context, cmd *cli.Command) error {
+func (r *MsgRunner) run(ctx context.Context, cmd *cli.Command) error {
 	channelID := strings.TrimSpace(cmd.String("channelId"))
 	if channelID == "" {
 		return errors.New("--channelId is required")
 	}
-
 	chatID := strings.TrimSpace(cmd.String("chatId"))
-	if len(chatID) == 0 {
+	if chatID == "" {
 		return errors.New("--chatId is required")
 	}
-
 	content := strings.TrimSpace(cmd.String("content"))
 	if content == "" {
 		return errors.New("--content cannot be empty")
 	}
 
-	cfgPath := strings.TrimSpace(cmd.String("config"))
-	cfg, err := config.Load(cfgPath)
+	cfg, err := config.Load(strings.TrimSpace(cmd.String("config")))
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -69,35 +70,22 @@ func runMessage(ctx context.Context, cmd *cli.Command) error {
 	if !ok {
 		return fmt.Errorf("channel %q was not found in the configured channels", channelID)
 	}
-	if err := sendMessage(ctx, chCfg, chatID, content); err != nil {
-		return err
-	}
 
-	fmt.Printf("Sent message via %s channel %s to target %s\n", chCfg.Type, chCfg.ID, chatID)
-	return nil
-}
-
-func sendMessage(ctx context.Context, chCfg config.ChannelConfig, chatID string, content string) error {
 	switch channel.Type(strings.ToLower(strings.TrimSpace(chCfg.Type))) {
 	case channel.Telegram:
-		tgCfg, err := telegram.ParseConfig(chCfg.Config)
-		if err != nil {
-			return fmt.Errorf("parse telegram config: %w", err)
-		}
-
-		ch, err := telegram.NewChannel(chCfg.ID, tgCfg)
+		ch, err := telegram.NewChannel(channelID, &chCfg)
 		if err != nil {
 			return fmt.Errorf("create telegram channel: %w", err)
 		}
-		defer func() {
-			_ = ch.Stop(ctx)
-		}()
+		defer func() { _ = ch.Stop(ctx) }()
 
 		if err := ch.SendMessage(ctx, chatID, content); err != nil {
 			return fmt.Errorf("send telegram message: %w", err)
 		}
-		return nil
 	default:
 		return fmt.Errorf("channel type %q is not supported by the msg command yet", chCfg.Type)
 	}
+
+	fmt.Printf("Sent message via %s channel %s to target %s\n", chCfg.Type, chCfg.ID, chatID)
+	return nil
 }

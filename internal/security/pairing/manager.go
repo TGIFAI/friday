@@ -1,20 +1,48 @@
 package pairing
 
 import (
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/base32"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bytedance/gg/gslice"
 	"github.com/google/uuid"
 
 	"github.com/tgifai/friday/internal/config"
+	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/pkg/utils"
 )
+
+const (
+	securityPolicyWelcome = consts.SecurityPolicyWelcome
+	securityPolicySilent  = consts.SecurityPolicySilent
+	securityPolicyCustom  = consts.SecurityPolicyCustom
+
+	defaultPairingWelcomeWindowSec = 300
+	defaultPairingMaxResp          = 3
+	maxPairingPersistCASRetries    = 3
+	defaultPairingCodeTTL          = 5 * time.Minute
+	defaultPairingCodeLen          = 8
+
+	defaultPairingWelcomeTemplate = "Welcome to Friday. Please enter your pairing code \n\n---\n<reqId:%s>"
+)
+
+type Challenge struct {
+	ReqID     string
+	Code      string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+type Decision struct {
+	Respond   bool
+	Message   string
+	Policy    consts.SecurityPolicy
+	Challenge Challenge
+}
 
 type Manager struct {
 	mu sync.Mutex
@@ -42,7 +70,7 @@ func (m *Manager) EvaluateUnknownUser(principalKey string, welcomeTemplate strin
 		return Decision{}, errors.New("principalKey cannot be empty")
 	}
 
-	security := m.loadPairingSecurityLocked()
+	security := m.loadSecurityConfigLocked()
 
 	decision := Decision{Policy: security.Policy}
 	now := time.Now()
@@ -59,10 +87,9 @@ func (m *Manager) EvaluateUnknownUser(principalKey string, welcomeTemplate strin
 
 	challenge, ok := m.challenges[principalKey]
 	if !ok || !now.Before(challenge.ExpiresAt) {
-		code := utils.RandDigits(6)
 		challenge = Challenge{
 			ReqID:     uuid.NewString(),
-			Code:      code,
+			Code:      utils.RandStr(defaultPairingCodeLen),
 			CreatedAt: now,
 			ExpiresAt: now.Add(defaultPairingCodeTTL),
 		}
@@ -115,30 +142,6 @@ func (m *Manager) EvaluateUnknownUser(principalKey string, welcomeTemplate strin
 	decision.Respond = true
 	decision.Message = strings.TrimSpace(msg)
 	return decision, nil
-}
-
-func (m *Manager) loadPairingSecurityLocked() config.ChannelSecurityConfig {
-	silent := config.ChannelSecurityConfig{
-		Policy:        securityPolicySilent,
-		WelcomeWindow: defaultPairingWelcomeWindowSec,
-		MaxResp:       defaultPairingMaxResp,
-	}
-
-	if strings.TrimSpace(m.chanId) == "" {
-		return silent
-	}
-
-	cfg, err := config.Get()
-	if err != nil {
-		return silent
-	}
-
-	_, channelCfg, err := findPairingChannel(cfg, m.chanId)
-	if err != nil {
-		return silent
-	}
-
-	return channelCfg.Security
 }
 
 func (m *Manager) VerifyCode(principalKey string, code string) (Challenge, error) {
@@ -196,38 +199,37 @@ func (m *Manager) GetActiveChallenge(principalKey string) (Challenge, bool) {
 func (m *Manager) IsAllowed(chatKey string, userID string) (bool, error) {
 	chatKey = strings.TrimSpace(chatKey)
 	userID = strings.TrimSpace(userID)
-	if chatKey == "" {
-		return false, errors.New("chatKey cannot be empty")
-	}
-	if userID == "" {
-		return false, errors.New("userID cannot be empty")
-	}
-	if strings.TrimSpace(m.chanId) == "" {
-		return false, errors.New("pairing manager channel identity is not set")
+	if chatKey == "" || userID == "" {
+		return false, errors.New("chatKey and userID cannot be empty")
 	}
 
 	cfg, err := config.Get()
 	if err != nil {
 		return false, err
 	}
-	_, channelCfg, err := findPairingChannel(cfg, m.chanId)
-	if err != nil {
-		return false, err
+	chCfg, ok := cfg.Channels[m.chanId]
+	if !ok {
+		return false, fmt.Errorf("channel not found: %s", m.chanId)
 	}
-	return isAuthorizedByPairingACL(channelCfg.ACL, chatKey, userID), nil
+
+	entry, exists := chCfg.ACL[chatKey]
+	if !exists {
+		return false, nil
+	}
+	if gslice.Contains(entry.Block, userID) {
+		return false, nil
+	}
+	if len(entry.Allow) == 0 {
+		return true, nil
+	}
+	return gslice.Contains(entry.Allow, userID), nil
 }
 
 func (m *Manager) GrantACL(chatKey string, userID string) (bool, error) {
 	chatKey = strings.TrimSpace(chatKey)
 	userID = strings.TrimSpace(userID)
-	if chatKey == "" {
-		return false, errors.New("chatKey cannot be empty")
-	}
-	if userID == "" {
-		return false, errors.New("userID cannot be empty")
-	}
-	if strings.TrimSpace(m.chanId) == "" {
-		return false, errors.New("pairing manager channel identity is not set")
+	if chatKey == "" || userID == "" {
+		return false, errors.New("chatKey and userID cannot be empty")
 	}
 
 	for attempt := 0; attempt < maxPairingPersistCASRetries; attempt++ {
@@ -239,20 +241,39 @@ func (m *Manager) GrantACL(chatKey string, userID string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		channelKey, channelCfg, err := findPairingChannel(cfg, m.chanId)
-		if err != nil {
-			return false, err
+		chCfg, ok := cfg.Channels[m.chanId]
+		if !ok {
+			return false, fmt.Errorf("channel not found: %s", m.chanId)
 		}
 
-		nextACL, changed, err := upsertPairingChatUser(channelCfg.ACL, chatKey, userID)
-		if err != nil {
-			return false, err
-		}
-		if !changed {
+		if chCfg.ACL == nil {
 			return false, nil
 		}
-		channelCfg.ACL = nextACL
-		cfg.Channels[channelKey] = channelCfg
+		entry, entryOK := chCfg.ACL[chatKey]
+		if !entryOK {
+			chCfg.ACL[chatKey] = config.ChannelACLConfig{Allow: []string{userID}}
+		} else {
+			changed := false
+			if !gslice.Contains(entry.Allow, userID) {
+				entry.Allow = append(entry.Allow, userID)
+				changed = true
+			}
+			if gslice.Contains(entry.Block, userID) {
+				filtered := make([]string, 0, len(entry.Block))
+				for _, id := range entry.Block {
+					if id != userID {
+						filtered = append(filtered, id)
+					}
+				}
+				entry.Block = filtered
+				changed = true
+			}
+			if !changed {
+				return false, nil
+			}
+			chCfg.ACL[chatKey] = entry
+		}
+		cfg.Channels[m.chanId] = chCfg
 
 		if err := config.ApplyWithCAS("config", cfg, expectedHash); err != nil {
 			if errors.Is(err, config.ErrConfigConflict) {
@@ -269,10 +290,31 @@ func (m *Manager) GrantACL(chatKey string, userID string) (bool, error) {
 	return false, fmt.Errorf("persist pairing allowlist conflict after %d retries", maxPairingPersistCASRetries)
 }
 
+func (m *Manager) loadSecurityConfigLocked() config.ChannelSecurityConfig {
+	silent := config.ChannelSecurityConfig{
+		Policy:        securityPolicySilent,
+		WelcomeWindow: defaultPairingWelcomeWindowSec,
+		MaxResp:       defaultPairingMaxResp,
+	}
+
+	if m.chanId == "" {
+		return silent
+	}
+	cfg, err := config.Get()
+	if err != nil {
+		return silent
+	}
+	chCfg, ok := cfg.Channels[m.chanId]
+	if !ok {
+		return silent
+	}
+	return chCfg.Security
+}
+
 func (m *Manager) compactStateLocked(now time.Time, welcomeWindowSec int) {
-	for principalKey, challenge := range m.challenges {
+	for key, challenge := range m.challenges {
 		if !now.Before(challenge.ExpiresAt) {
-			delete(m.challenges, principalKey)
+			delete(m.challenges, key)
 		}
 	}
 
@@ -280,7 +322,7 @@ func (m *Manager) compactStateLocked(now time.Time, welcomeWindowSec int) {
 	if window <= 0 {
 		window = defaultPairingCodeTTL
 	}
-	for principalKey, points := range m.windows {
+	for key, points := range m.windows {
 		filtered := points[:0]
 		for _, one := range points {
 			if now.Sub(one) < window {
@@ -288,21 +330,9 @@ func (m *Manager) compactStateLocked(now time.Time, welcomeWindowSec int) {
 			}
 		}
 		if len(filtered) == 0 {
-			delete(m.windows, principalKey)
+			delete(m.windows, key)
 			continue
 		}
-		m.windows[principalKey] = filtered
+		m.windows[key] = filtered
 	}
-}
-
-func defaultPairingCodeFn() (string, error) {
-	b := make([]byte, defaultPairingCodeLen)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	code := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b)
-	if len(code) > defaultPairingCodeLen {
-		code = code[:defaultPairingCodeLen]
-	}
-	return code, nil
 }

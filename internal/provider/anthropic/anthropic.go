@@ -25,14 +25,15 @@ type Provider struct {
 	mu       sync.RWMutex
 }
 
-func NewAnthropicProvider(config Config) (*Provider, error) {
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider, error) {
+	cfg, err := ParseConfig(id, cfgMap)
+	if err != nil {
+		return nil, fmt.Errorf("parse anthropic config: %w", err)
 	}
 
 	return &Provider{
-		config:   config,
-		httpCli:  &http.Client{Timeout: config.Timeout},
+		config:   *cfg,
+		httpCli:  &http.Client{Timeout: cfg.Timeout},
 		modelMap: make(map[string]*claude.ChatModel, 4),
 	}, nil
 }

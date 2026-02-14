@@ -1,7 +1,6 @@
 package pairing
 
 import (
-	"errors"
 	"strings"
 	"sync"
 )
@@ -9,37 +8,13 @@ import (
 var (
 	defaultRegistry = &managerRegistry{managers: make(map[string]*Manager, 8)}
 
-	Get      = defaultRegistry.Get
-	Delete   = defaultRegistry.Delete
-	Register = defaultRegistry.Register
+	Get    = defaultRegistry.Get
+	Delete = defaultRegistry.Delete
 )
 
 type managerRegistry struct {
 	mu       sync.RWMutex
 	managers map[string]*Manager
-}
-
-func (r *managerRegistry) Register(channelKey string) (*Manager, error) {
-	channelKey = strings.TrimSpace(channelKey)
-	if channelKey == "" {
-		return nil, errors.New("channelID cannot be empty")
-	}
-	channelID := parsePairingChannelID(channelKey)
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if manager, ok := r.managers[channelKey]; ok && manager != nil {
-		if manager.chanId == "" {
-			manager.chanId = channelID
-		}
-		return manager, nil
-	}
-
-	manager := newManager(channelID)
-	manager.chanId = channelID
-	r.managers[channelKey] = manager
-	return manager, nil
 }
 
 func (r *managerRegistry) Get(channelKey string) *Manager {

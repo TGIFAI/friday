@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/eino/schema"
@@ -12,12 +11,10 @@ import (
 	"github.com/tgifai/friday/internal/channel"
 )
 
-const (
-	sessKeyTpl = "agent:%s:%s:%s"
-)
+const sessKeyTpl = "agent:%s:%s:%s"
 
 type Session struct {
-	sessionKey string
+	SessionKey string
 
 	AgentID  string
 	Channel  channel.Type
@@ -28,8 +25,8 @@ type Session struct {
 	updateTime time.Time
 	expireAt   time.Time
 
-	msgCnt      atomic.Int64
-	toolCallCnt atomic.Int64
+	msgCnt      int64
+	toolCallCnt int64
 
 	dirty   bool
 	version uint64
@@ -38,26 +35,6 @@ type Session struct {
 	appendSaveCnt   int
 
 	mu sync.RWMutex
-}
-
-type sessionSnapshot struct {
-	sessionKey string
-	agentID    string
-	channel    channel.Type
-	userID     string
-
-	createTime time.Time
-	updateTime time.Time
-	expireAt   time.Time
-
-	msgCnt      int64
-	toolCallCnt int64
-	dirty       bool
-	version     uint64
-
-	messages        []*schema.Message
-	persistedMsgLen int
-	appendSaveCnt   int
 }
 
 func (s *Session) History() []*schema.Message {
@@ -73,8 +50,8 @@ func (s *Session) Clear() {
 	defer s.mu.Unlock()
 
 	s.messages = s.messages[:0]
-	s.msgCnt.Store(0)
-	s.toolCallCnt.Store(0)
+	s.msgCnt = 0
+	s.toolCallCnt = 0
 	s.updateTime = time.Now()
 	s.markMutationLocked()
 }
@@ -83,6 +60,7 @@ func (s *Session) Append(msg *schema.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, msg)
+	s.msgCnt++
 	s.updateTime = time.Now()
 	s.markMutationLocked()
 }
@@ -98,11 +76,15 @@ func (s *Session) SetExpireAt(expireAt time.Time) {
 }
 
 func (s *Session) MsgCount() int64 {
-	return s.msgCnt.Load()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.msgCnt
 }
 
 func (s *Session) ToolCallCount() int64 {
-	return s.toolCallCnt.Load()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.toolCallCnt
 }
 
 func (s *Session) UpdatedAt() time.Time {
@@ -118,62 +100,6 @@ func (s *Session) IsExpired(now time.Time) bool {
 		return false
 	}
 	return !s.expireAt.After(now)
-}
-
-func (s *Session) IncrMsgCnt() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.msgCnt.Add(1)
-	s.updateTime = time.Now()
-	s.markMutationLocked()
-}
-
-func (s *Session) IncrToolCallCnt() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.toolCallCnt.Add(1)
-	s.updateTime = time.Now()
-	s.markMutationLocked()
-}
-
-func (s *Session) snapshotForSave() sessionSnapshot {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	msgs := make([]*schema.Message, len(s.messages))
-	copy(msgs, s.messages)
-
-	return sessionSnapshot{
-		sessionKey:      s.sessionKey,
-		agentID:         s.AgentID,
-		channel:         s.Channel,
-		userID:          s.UserID,
-		createTime:      s.createTime,
-		updateTime:      s.updateTime,
-		expireAt:        s.expireAt,
-		msgCnt:          s.msgCnt.Load(),
-		toolCallCnt:     s.toolCallCnt.Load(),
-		dirty:           s.dirty,
-		version:         s.version,
-		messages:        msgs,
-		persistedMsgLen: s.persistedMsgLen,
-		appendSaveCnt:   s.appendSaveCnt,
-	}
-}
-
-func (s *Session) markPersisted(msgLen int, compacted bool, expectedVersion uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.persistedMsgLen = msgLen
-	if compacted {
-		s.appendSaveCnt = 0
-	} else {
-		s.appendSaveCnt++
-	}
-	if s.version == expectedVersion {
-		s.dirty = false
-	}
 }
 
 func (s *Session) markMutationLocked() {

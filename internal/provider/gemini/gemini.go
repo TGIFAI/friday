@@ -23,16 +23,17 @@ type Provider struct {
 	mu       sync.RWMutex
 }
 
-func NewProvider(ctx context.Context, config Config) (*Provider, error) {
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+func NewProvider(ctx context.Context, id string, cfgMap map[string]any) (*Provider, error) {
+	cfg, err := ParseConfig(id, cfgMap)
+	if err != nil {
+		return nil, fmt.Errorf("parse gemini config: %w", err)
 	}
 
 	clientCfg := &genai.ClientConfig{
-		APIKey: config.APIKey,
+		APIKey: cfg.APIKey,
 	}
-	if config.BaseURL != "" {
-		clientCfg.HTTPOptions = genai.HTTPOptions{BaseURL: config.BaseURL}
+	if cfg.BaseURL != "" {
+		clientCfg.HTTPOptions = genai.HTTPOptions{BaseURL: cfg.BaseURL}
 	}
 
 	client, err := genai.NewClient(ctx, clientCfg)
@@ -41,7 +42,7 @@ func NewProvider(ctx context.Context, config Config) (*Provider, error) {
 	}
 
 	return &Provider{
-		config:   config,
+		config:   *cfg,
 		client:   client,
 		modelMap: make(map[string]*gmodel.ChatModel, 4),
 	}, nil

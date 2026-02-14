@@ -6,7 +6,6 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/tgifai/friday/internal/cmd/msg"
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
@@ -15,7 +14,8 @@ func main() {
 		Name:  "friday",
 		Usage: "Thank God It's Friday, Your Personal AI Assistant",
 		Commands: []*cli.Command{
-			msg.Command,
+			gwHwd.cmd(),
+			msgHwd.cmd(),
 		},
 	}
 
