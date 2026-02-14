@@ -6,14 +6,17 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/tgifai/friday/internal/cmd/msg"
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
 func main() {
 	cmd := &cli.Command{
-		Name:     "friday",
-		Usage:    "Thank God It's Friday, Your Personal AI Assistant",
-		Commands: []*cli.Command{},
+		Name:  "friday",
+		Usage: "Thank God It's Friday, Your Personal AI Assistant",
+		Commands: []*cli.Command{
+			msg.Command,
+		},
 	}
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {

@@ -6,11 +6,12 @@ import (
 	"strings"
 	"sync"
 
-	geminimodel "github.com/cloudwego/eino-ext/components/model/gemini"
+	gmodel "github.com/cloudwego/eino-ext/components/model/gemini"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	"github.com/tgifai/friday/internal/provider"
 	"google.golang.org/genai"
+
+	"github.com/tgifai/friday/internal/provider"
 )
 
 var _ provider.Provider = (*Provider)(nil)
@@ -18,7 +19,7 @@ var _ provider.Provider = (*Provider)(nil)
 type Provider struct {
 	config   Config
 	client   *genai.Client
-	modelMap map[string]*geminimodel.ChatModel
+	modelMap map[string]*gmodel.ChatModel
 	mu       sync.RWMutex
 }
 
@@ -42,7 +43,7 @@ func NewProvider(ctx context.Context, config Config) (*Provider, error) {
 	return &Provider{
 		config:   config,
 		client:   client,
-		modelMap: make(map[string]*geminimodel.ChatModel, 4),
+		modelMap: make(map[string]*gmodel.ChatModel, 4),
 	}, nil
 }
 
@@ -135,7 +136,7 @@ func (p *Provider) Stream(ctx context.Context, modelName string, input []*schema
 	return streamReader, nil
 }
 
-func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (*geminimodel.ChatModel, error) {
+func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (*gmodel.ChatModel, error) {
 	p.mu.RLock()
 	if m, exists := p.modelMap[modelName]; exists {
 		p.mu.RUnlock()
@@ -150,7 +151,7 @@ func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (*gem
 		return m, nil
 	}
 
-	chatModel, err := geminimodel.NewChatModel(ctx, &geminimodel.Config{
+	chatModel, err := gmodel.NewChatModel(ctx, &gmodel.Config{
 		Client: p.client,
 		Model:  modelName,
 	})

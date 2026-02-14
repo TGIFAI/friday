@@ -9,6 +9,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/eino-ext/components/model/openai"
+
 	"github.com/tgifai/friday/internal/provider"
 )
 

@@ -1,0 +1,53 @@
+name: Test x86
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: ["*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-x86-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Go ${{ matrix.go-version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [1.24.x, 1.25.x, 1.26.x]
+        runner_arch: [ubuntu-latest]
+
+    runs-on: ${{ matrix.runner_arch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ${{ github.workspace }}/go.sum
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Unit Test
+        run: GOMAXPROCS=4 go test -race -covermode=atomic -coverprofile=coverage.txt ./...
+
+      - name: Upload coverage
+        if: matrix.go-version == '1.26.x'
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.txt
+          fail_ci_if_error: false

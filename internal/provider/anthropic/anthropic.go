@@ -12,6 +12,7 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/claude"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
 	"github.com/tgifai/friday/internal/provider"
 )
 
