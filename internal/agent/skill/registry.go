@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
@@ -33,7 +34,7 @@ type Registry struct {
 func NewRegistry(workspace string) *Registry {
 	return &Registry{
 		agentDir:   filepath.Join(workspace, "skills"),
-		builtinDir: "skills",
+		builtinDir: consts.GlobalSkillsDir(),
 		skills:     make(map[string]*Skill, 32),
 	}
 }
@@ -257,7 +258,7 @@ func (r *Registry) List() []*Skill {
 	return skills
 }
 
-func (r *Registry) BuildSkillsPrompt(skills []*Skill) string {
+func (r *Registry) BuildPrompt(skills []*Skill) string {
 	if len(skills) == 0 {
 		return ""
 	}
@@ -279,6 +280,8 @@ func (r *Registry) BuildSkillsPrompt(skills []*Skill) string {
 
 	return strings.Join(parts, "\n")
 }
+
+func (r *Registry) BuildSummaryPrompt() string { return "" }
 
 func (r *Registry) Reload(ctx context.Context) error {
 	r.mu.Lock()

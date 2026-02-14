@@ -21,6 +21,9 @@ var (
 	//go:embed tpl/HEARTBEAT.md
 	WorkspaceHeartbeatTemplate string
 
+	//go:embed tpl/SECURITY.md
+	WorkspaceSecurityTemplate string
+
 	//go:embed tpl/MEMORY.md
 	WorkspaceMemoryTemplate string
 )
@@ -32,6 +35,7 @@ var WorkspaceMarkdownFiles = []string{
 	"TOOLS.md",
 	"IDENTITY.md",
 	"HEARTBEAT.md",
+	"SECURITY.md",
 }
 
 const WorkspaceMemoryFile = "memory/MEMORY.md"
@@ -43,5 +47,6 @@ var WorkspaceMarkdownTemplates = map[string]string{
 	"TOOLS.md":         WorkspaceToolsTemplate,
 	"IDENTITY.md":      WorkspaceIdentityTemplate,
 	"HEARTBEAT.md":     WorkspaceHeartbeatTemplate,
+	"SECURITY.md":      WorkspaceSecurityTemplate,
 	"memory/MEMORY.md": WorkspaceMemoryTemplate,
 }

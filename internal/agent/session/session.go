@@ -11,14 +11,15 @@ import (
 	"github.com/tgifai/friday/internal/channel"
 )
 
-const sessKeyTpl = "agent:%s:%s:%s"
+const sessKeyTpl = "agent:%s:%s:%s:%s"
 
 type Session struct {
 	SessionKey string
 
-	AgentID  string
-	Channel  channel.Type
-	UserID   string
+	AgentID   string
+	Channel   channel.Type
+	ChannelID string
+	ChatID    string
 	messages []*schema.Message
 
 	createTime time.Time
@@ -107,15 +108,15 @@ func (s *Session) markMutationLocked() {
 	s.version++
 }
 
-func GenerateKey(agentID string, channelType channel.Type, userID string) string {
-	return fmt.Sprintf(sessKeyTpl, agentID, string(channelType), userID)
+func GenerateKey(agentID string, channelType channel.Type, channelID string, chatID string) string {
+	return fmt.Sprintf(sessKeyTpl, agentID, string(channelType), channelID, chatID)
 }
 
-func ParseKey(sessionKey string) (agentID string, channelType channel.Type, userID string, err error) {
+func ParseKey(sessionKey string) (agentID string, channelType channel.Type, channelID string, chatID string, err error) {
 	parts := strings.Split(sessionKey, ":")
-	if len(parts) != 4 || parts[0] != "agent" {
-		return "", "", "", fmt.Errorf("invalid session key format: %s (expected agent:<agentId>:<channel>:<userId>)", sessionKey)
+	if len(parts) != 5 || parts[0] != "agent" {
+		return "", "", "", "", fmt.Errorf("invalid session key format: %s (expected agent:<agentId>:<channel>:<channelId>:<chatId>)", sessionKey)
 	}
 
-	return parts[1], channel.Type(parts[2]), parts[3], nil
+	return parts[1], channel.Type(parts[2]), parts[3], parts[4], nil
 }

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/urfave/cli/v3"
 
 	"github.com/tgifai/friday/internal/config"
+	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/gateway"
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
@@ -25,16 +25,8 @@ func (r *GatewayRunner) cmd() *cli.Command {
 		Usage: "Manage the gateway runtime",
 		Commands: []*cli.Command{
 			{
-				Name:  "run",
-				Usage: "Run the gateway runtime with configured providers, agents, and channels",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:    "config",
-						Aliases: []string{"c"},
-						Usage:   "Path to the runtime config file",
-						Value:   "config.yaml",
-					},
-				},
+				Name:   "run",
+				Usage:  "Run the gateway runtime with configured providers, agents, and channels",
 				Action: r.run,
 			},
 			// TODO restart
@@ -42,9 +34,13 @@ func (r *GatewayRunner) cmd() *cli.Command {
 	}
 }
 
-func (r *GatewayRunner) run(ctx context.Context, cmd *cli.Command) error {
-	cfgPath := cmd.String("config")
-	cfgPath = getConfigPath(cfgPath)
+func (r *GatewayRunner) run(ctx context.Context, _ *cli.Command) error {
+	cfgPath := consts.DefaultConfigPath()
+
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		fmt.Println("Friday is not configured yet. Run \"friday onboard\" to get started.")
+		return nil
+	}
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -101,21 +97,3 @@ func (r *GatewayRunner) initLogger(cfg config.LoggingConfig) error {
 
 }
 
-func getConfigPath(customPath string) string {
-	if customPath != "" {
-		return customPath
-	}
-
-	defaultPaths := []string{
-		"config.yaml",
-		filepath.Join(os.Getenv("HOME"), ".friday", "config.yaml"),
-	}
-
-	for _, path := range defaultPaths {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-
-	return defaultPaths[0]
-}

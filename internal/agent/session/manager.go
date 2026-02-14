@@ -45,12 +45,12 @@ func (m *Manager) AgentID() string {
 	return m.agentID
 }
 
-func (m *Manager) BuildKey(channelType channel.Type, chatID string) string {
-	return GenerateKey(m.agentID, channelType, chatID)
+func (m *Manager) BuildKey(channelType channel.Type, channelID string, chatID string) string {
+	return GenerateKey(m.agentID, channelType, channelID, chatID)
 }
 
-func (m *Manager) GetOrCreateFor(channelType channel.Type, chatID string) *Session {
-	return m.GetOrCreate(m.BuildKey(channelType, chatID))
+func (m *Manager) GetOrCreateFor(channelType channel.Type, channelID string, chatID string) *Session {
+	return m.GetOrCreate(m.BuildKey(channelType, channelID, chatID))
 }
 
 func (m *Manager) GetOrCreate(sessKey string) *Session {
@@ -90,10 +90,11 @@ func (m *Manager) Create(sessKey string) *Session {
 		createTime: timeNow,
 		updateTime: timeNow,
 	}
-	if agentID, channelType, userID, err := ParseKey(sessKey); err == nil {
+	if agentID, channelType, channelID, chatID, err := ParseKey(sessKey); err == nil {
 		sess.AgentID = agentID
 		sess.Channel = channelType
-		sess.UserID = userID
+		sess.ChannelID = channelID
+		sess.ChatID = chatID
 	}
 
 	actual, _ := m.sessMap.LoadOrStore(sessKey, sess)

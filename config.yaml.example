@@ -95,18 +95,18 @@ providers:
   openai-main:
     # Supported values: openai, anthropic, gemini, ollama, qwen.
     type: "openai"
-    api_key: "${OPENAI_API_KEY}"
-    base_url: "https://api.openai.com/v1"
     config:
+      api_key: "${OPENAI_API_KEY}"
+      base_url: "https://api.openai.com/v1"
       default_model: "gpt-4o-mini"
       timeout: 60
       max_retries: 3
 
   anthropic-main:
     type: "anthropic"
-    api_key: "${ANTHROPIC_API_KEY}"
-    base_url: "https://api.anthropic.com"
     config:
+      api_key: "${ANTHROPIC_API_KEY}"
+      base_url: "https://api.anthropic.com"
       default_model: "claude-3-5-sonnet-20241022"
       timeout: 60
       max_retries: 3

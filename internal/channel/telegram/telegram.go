@@ -27,7 +27,7 @@ var (
 )
 
 const (
-	defaultPairingPromptTemplate = "Welcome to Friday. Please enter your pairing code <reqId:%s>"
+	defaultPairingPromptTemplate = ""
 	pairCommandPrefix            = "/pair"
 )
 
@@ -333,7 +333,7 @@ func (c *Telegram) handlePairingIngress(ctx context.Context, b *bot.Bot, msg *mo
 	}
 
 	principal := c.buildPairingPrincipal(chatKey, userID)
-	decision, err := c.pairing.EvaluateUnknownUser(principal, defaultPairingPromptTemplate)
+	decision, err := c.pairing.EvaluateUnknownUser(principal, chatID, userID, defaultPairingPromptTemplate)
 	if err != nil {
 		logs.CtxError(ctx, "[channel:telegram] pairing evaluate failed: %v", err)
 		return true

@@ -11,6 +11,7 @@ import (
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/channel/telegram"
 	"github.com/tgifai/friday/internal/config"
+	"github.com/tgifai/friday/internal/consts"
 )
 
 var msgHwd = &MsgRunner{}
@@ -22,12 +23,6 @@ func (r *MsgRunner) cmd() *cli.Command {
 		Name:  "msg",
 		Usage: "Send a one-off message through a configured channel",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "config",
-				Aliases: []string{"c"},
-				Usage:   "Path to the runtime config file",
-				Value:   "config.yaml",
-			},
 			&cli.StringFlag{
 				Name:    "channelId",
 				Aliases: []string{"chanId"},
@@ -61,7 +56,7 @@ func (r *MsgRunner) run(ctx context.Context, cmd *cli.Command) error {
 		return errors.New("--content cannot be empty")
 	}
 
-	cfg, err := config.Load(strings.TrimSpace(cmd.String("config")))
+	cfg, err := config.Load(consts.DefaultConfigPath())
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}

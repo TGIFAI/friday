@@ -71,6 +71,30 @@ jobs:
             -o "output/${NAME}${EXT}" \
             ./cmd/friday
 
+          echo "BINARY_NAME=${NAME}${EXT}" >> "$GITHUB_ENV"
+
+      - name: Compress binary with UPX
+        if: matrix.goos == 'linux' || (matrix.goos == 'windows' && matrix.goarch == 'amd64')
+        uses: crazy-max/ghaction-upx@v3
+        with:
+          version: latest
+          files: output/${{ env.BINARY_NAME }}
+          args: --best --lzma
+
+      - name: Package archive
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          NAME="${APP_NAME}_${VERSION}_${GOOS}_${GOARCH}"
+          EXT=""
+          if [ "${GOOS}" = "windows" ]; then
+            EXT=".exe"
+          fi
+
           tar -czf "output/${NAME}.tar.gz" -C output "${NAME}${EXT}"
           rm -f "output/${NAME}${EXT}"
 

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -380,37 +381,27 @@ func shouldColorizeStdout(output string) bool {
 	if output == "file" {
 		return false
 	}
-	if os.Getenv("CLICOLOR_FORCE") == "1" {
-		return true
-	}
-	if os.Getenv("NO_COLOR") != "" || os.Getenv("CLICOLOR") == "0" {
-		return false
-	}
-	info, err := os.Stdout.Stat()
-	if err != nil || (info.Mode()&os.ModeCharDevice) == 0 {
-		return false
-	}
-	term := strings.ToLower(strings.TrimSpace(os.Getenv("TERM")))
-	return term != "" && term != "dumb"
+	return !color.NoColor
 }
 
+var (
+	colorDebug = color.New(color.FgCyan)
+	colorInfo  = color.New(color.FgGreen)
+	colorWarn  = color.New(color.FgYellow)
+	colorError = color.New(color.FgRed)
+)
+
 func colorizeLevel(level logrus.Level, text string) string {
-	const reset = "\x1b[0m"
-	var code string
 	switch level {
 	case logrus.DebugLevel:
-		code = "\x1b[36m"
+		return colorDebug.Sprint(text)
 	case logrus.InfoLevel:
-		code = "\x1b[32m"
+		return colorInfo.Sprint(text)
 	case logrus.WarnLevel:
-		code = "\x1b[33m"
+		return colorWarn.Sprint(text)
 	case logrus.ErrorLevel, logrus.FatalLevel, logrus.PanicLevel:
-		code = "\x1b[31m"
+		return colorError.Sprint(text)
 	default:
-		code = ""
-	}
-	if code == "" {
 		return text
 	}
-	return code + text + reset
 }

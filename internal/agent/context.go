@@ -105,6 +105,16 @@ func (ag *Agent) buildSystemPrompt() (string, error) {
 		}
 	}
 
+	// 3. load built-in skills
+	if builtInSkills, _ := ag.skills.GetBuiltInSkills(); len(builtInSkills) > 0 {
+		if text := ag.skills.BuildPrompt(builtInSkills); text != "" {
+			if prompt.Len() > 0 {
+				prompt.WriteString("\n\n")
+			}
+			prompt.WriteString(text)
+		}
+	}
+
 	prompt.WriteString("\n\n---\n\n")
 	return prompt.String(), nil
 }

@@ -48,6 +48,24 @@ func (ag *Agent) runLoop(ctx context.Context,
 		str, _ := sonic.MarshalString(llmResp)
 		logs.CtxDebug(ctx, "[agent:%s:%d] llmResp: %+v", ag.id, iter, str)
 		if len(llmResp.ToolCalls) > 0 {
+			msgs = append(msgs, llmResp)
+			for _, call := range llmResp.ToolCalls {
+				logs.CtxDebug(ctx, "[agent:%s:%d] call: %+v", ag.id, iter, call)
+				res, callErr := ag.tools.ExecuteToolCall(ctx, &call)
+				resMsg := &schema.Message{
+					Role:       schema.Tool,
+					ToolName:   call.Function.Name,
+					ToolCallID: call.ID,
+				}
+				if callErr != nil {
+					logs.CtxWarn(ctx, "agent tool call failed: %s", callErr)
+					resMsg.Content = "ERROR: " + callErr.Error()
+				} else {
+					resMsg.Content, _ = sonic.MarshalString(res)
+				}
+				msgs = append(msgs, resMsg)
+			}
+			continue
 		}
 
 		finalResp = llmResp

@@ -27,7 +27,18 @@ const (
 	defaultPairingCodeTTL          = 5 * time.Minute
 	defaultPairingCodeLen          = 8
 
-	defaultPairingWelcomeTemplate = "Welcome to Friday. Please enter your pairing code \n\n---\n<reqId:%s>"
+	defaultPairingWelcomeTemplate = `👋 Welcome to Friday!
+
+This chat is not yet paired. To start using Friday, reply with:
+/pair <YOUR_CODE>
+
+Check the server logs for your pairing code.
+
+📌 Chat ID: {chatId}
+👤 User ID: {userId}
+🔑 Request: {reqId}
+
+⏳ Code expires in 5 minutes.`
 )
 
 type Challenge struct {
@@ -61,7 +72,7 @@ func newManager(chanId string) *Manager {
 	}
 }
 
-func (m *Manager) EvaluateUnknownUser(principalKey string, welcomeTemplate string) (Decision, error) {
+func (m *Manager) EvaluateUnknownUser(principalKey, chatID, userID, welcomeTemplate string) (Decision, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -89,7 +100,7 @@ func (m *Manager) EvaluateUnknownUser(principalKey string, welcomeTemplate strin
 	if !ok || !now.Before(challenge.ExpiresAt) {
 		challenge = Challenge{
 			ReqID:     uuid.NewString(),
-			Code:      utils.RandStr(defaultPairingCodeLen),
+			Code:      strings.ToUpper(utils.RandStr(defaultPairingCodeLen)),
 			CreatedAt: now,
 			ExpiresAt: now.Add(defaultPairingCodeTTL),
 		}
@@ -119,28 +130,17 @@ func (m *Manager) EvaluateUnknownUser(principalKey string, welcomeTemplate strin
 	if security.Policy == securityPolicyCustom {
 		template = security.CustomText
 	}
-
-	reqID := strings.TrimSpace(challenge.ReqID)
-	template = strings.TrimSpace(template)
-	if reqID == "" {
-		decision.Respond = true
-		decision.Message = template
-		return decision, nil
-	}
-	if template == "" {
+	if strings.TrimSpace(template) == "" {
 		template = defaultPairingWelcomeTemplate
 	}
-	if strings.Contains(template, "%s") {
-		decision.Respond = true
-		decision.Message = strings.TrimSpace(fmt.Sprintf(template, reqID))
-		return decision, nil
-	}
-	msg := strings.ReplaceAll(template, "{reqId}", reqID)
-	if msg == template {
-		msg = msg + " <reqId:" + reqID + ">"
-	}
+
+	replacer := strings.NewReplacer(
+		"{reqId}", challenge.ReqID,
+		"{chatId}", chatID,
+		"{userId}", userID,
+	)
 	decision.Respond = true
-	decision.Message = strings.TrimSpace(msg)
+	decision.Message = strings.TrimSpace(replacer.Replace(template))
 	return decision, nil
 }
 
@@ -149,7 +149,7 @@ func (m *Manager) VerifyCode(principalKey string, code string) (Challenge, error
 	defer m.mu.Unlock()
 
 	principalKey = strings.TrimSpace(principalKey)
-	code = strings.TrimSpace(code)
+	code = strings.ToUpper(strings.TrimSpace(code))
 	if principalKey == "" {
 		return Challenge{}, errors.New("principalKey cannot be empty")
 	}
@@ -247,7 +247,7 @@ func (m *Manager) GrantACL(chatKey string, userID string) (bool, error) {
 		}
 
 		if chCfg.ACL == nil {
-			return false, nil
+			chCfg.ACL = make(map[string]config.ChannelACLConfig)
 		}
 		entry, entryOK := chCfg.ACL[chatKey]
 		if !entryOK {

@@ -25,6 +25,7 @@ type (
 		Bind                  string `yaml:"bind"`
 		MaxConcurrentSessions int    `yaml:"max_concurrent_sessions"`
 		RequestTimeout        int    `yaml:"request_timeout"`
+		AutoUpdate            bool   `yaml:"auto_update"`
 	}
 
 	LoggingConfig struct {
@@ -88,11 +89,9 @@ type (
 	}
 
 	ProviderConfig struct {
-		ID      string         `yaml:"-"`
-		Type    string         `yaml:"type"` // openai, anthropic, gemini, ollama, qwen
-		APIKey  string         `yaml:"api_key"`
-		BaseURL string         `yaml:"base_url"`
-		Config  map[string]any `yaml:"config"`
+		ID     string         `yaml:"-"`
+		Type   string         `yaml:"type"` // openai, anthropic, gemini, ollama, qwen
+		Config map[string]any `yaml:"config"`
 	}
 )
 

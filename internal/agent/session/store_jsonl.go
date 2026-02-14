@@ -41,7 +41,8 @@ type jsonlMetadataRecord struct {
 	SessionKey  string    `json:"session_key"`
 	AgentID     string    `json:"agent_id,omitempty"`
 	Channel     string    `json:"channel,omitempty"`
-	UserID      string    `json:"user_id,omitempty"`
+	ChannelID   string    `json:"channel_id,omitempty"`
+	ChatID      string    `json:"chat_id,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	ExpireAt    time.Time `json:"expire_at,omitempty"`
@@ -168,7 +169,8 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 		SessionKey:      sessionKey,
 		AgentID:         meta.AgentID,
 		Channel:         channel.Type(meta.Channel),
-		UserID:          meta.UserID,
+		ChannelID:       meta.ChannelID,
+		ChatID:          meta.ChatID,
 		messages:        msgs,
 		createTime:      meta.CreatedAt,
 		updateTime:      meta.UpdatedAt,
@@ -184,8 +186,8 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 		sess.updateTime = sess.createTime
 	}
 
-	if sess.AgentID == "" || sess.Channel == "" || sess.UserID == "" {
-		agentID, ch, userID, parseErr := ParseKey(sessionKey)
+	if sess.AgentID == "" || sess.Channel == "" || sess.ChannelID == "" || sess.ChatID == "" {
+		agentID, ch, channelID, chatID, parseErr := ParseKey(sessionKey)
 		if parseErr == nil {
 			if sess.AgentID == "" {
 				sess.AgentID = agentID
@@ -193,8 +195,11 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 			if sess.Channel == "" {
 				sess.Channel = ch
 			}
-			if sess.UserID == "" {
-				sess.UserID = userID
+			if sess.ChannelID == "" {
+				sess.ChannelID = channelID
+			}
+			if sess.ChatID == "" {
+				sess.ChatID = chatID
 			}
 		}
 	}
@@ -225,7 +230,8 @@ func (s *jsonlStore) Save(ctx context.Context, sess *Session) error {
 		SessionKey:  sess.SessionKey,
 		AgentID:     sess.AgentID,
 		Channel:     string(sess.Channel),
-		UserID:      sess.UserID,
+		ChannelID:   sess.ChannelID,
+		ChatID:      sess.ChatID,
 		CreatedAt:   sess.createTime,
 		UpdatedAt:   sess.updateTime,
 		ExpireAt:    sess.expireAt,

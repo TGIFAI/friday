@@ -9,6 +9,8 @@ import (
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/agent/skill"
 	"github.com/tgifai/friday/internal/agent/tool"
+	"github.com/tgifai/friday/internal/agent/tool/filex"
+	"github.com/tgifai/friday/internal/agent/tool/msgx"
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/pkg/logs"
@@ -57,7 +59,24 @@ func (ag *Agent) Workspace() string {
 	return ag.workspace
 }
 
-func (ag *Agent) Init(ctx context.Context) error { return nil }
+func (ag *Agent) Init(_ context.Context) error {
+	// skills
+	_ = ag.skills.LoadAll()
+
+	allowedPaths := []string{ag.workspace}
+	// file related tools
+	_ = ag.tools.Register(filex.NewFileTool(ag.workspace, allowedPaths))
+	_ = ag.tools.Register(filex.NewReadTool(ag.workspace, allowedPaths))
+	_ = ag.tools.Register(filex.NewWriteTool(ag.workspace, allowedPaths))
+	_ = ag.tools.Register(filex.NewListTool(ag.workspace, allowedPaths))
+	_ = ag.tools.Register(filex.NewDeleteTool(ag.workspace, allowedPaths))
+	_ = ag.tools.Register(filex.NewEditTool(ag.workspace, allowedPaths))
+
+	// msg related tools
+	_ = ag.tools.Register(msgx.NewMessageTool())
+
+	return nil
+}
 
 func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*channel.Response, error) {
 	logs.CtxDebug(ctx, "[agent:%s] received message from channel %s, user %s: %s",
@@ -75,7 +94,7 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 	}
 
 	// get or create current session
-	sess := ag.sess.GetOrCreateFor(msg.ChannelType, msg.ChatID)
+	sess := ag.sess.GetOrCreateFor(msg.ChannelType, msg.ChannelID, msg.ChatID)
 	msg.SessionKey = sess.SessionKey
 	defer func() {
 		if err := ag.sess.Save(sess); err != nil {

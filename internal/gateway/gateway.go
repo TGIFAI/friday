@@ -141,13 +141,7 @@ func (gw *Gateway) initProviders(ctx context.Context, providers map[string]confi
 }
 
 func newProvider(ctx context.Context, cfg config.ProviderConfig) (provider.Provider, error) {
-	cfgMap := make(map[string]interface{}, 8)
-	if cfg.BaseURL != "" {
-		cfgMap["base_url"] = cfg.BaseURL
-	}
-	if cfg.APIKey != "" {
-		cfgMap["secret_key"] = cfg.APIKey
-	}
+	cfgMap := make(map[string]interface{}, len(cfg.Config))
 	for k, v := range cfg.Config {
 		cfgMap[k] = v
 	}
@@ -243,10 +237,13 @@ func (gw *Gateway) enqueueMsg(ctx context.Context, msg *channel.Message) error {
 	if msg == nil {
 		return fmt.Errorf("message cannot be nil")
 	}
-	// TODO get agent id
 
 	if msg.SessionKey == "" {
-		msg.SessionKey = session.GenerateKey("default", msg.ChannelType, msg.ChatID)
+		ag, err := gw.getAgentByChannel(msg.ChannelID)
+		if err != nil {
+			return err
+		}
+		msg.SessionKey = session.GenerateKey(ag.ID(), msg.ChannelType, msg.ChannelID, msg.ChatID)
 	}
 	return gw.msgQueue.Enqueue(ctx, msg)
 }

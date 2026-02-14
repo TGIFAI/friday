@@ -1,6 +1,6 @@
 # Friday
 
-**Too Good Is Friday**
+**Thank God It's Friday, Your Personal AI Assistant**
 
 Friday is a Go-based multi-agent framework inspired by projects like OpenClaw and Nanobot.
 
