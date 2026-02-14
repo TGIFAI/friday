@@ -1,0 +1,112 @@
+# Friday runtime configuration template.
+# IDs for agents/channels/providers come from map keys, so no duplicated "id" fields are required.
+
+# Gateway server settings.
+gateway:
+  # Address and port for the runtime HTTP server.
+  bind: "0.0.0.0:8080"
+  # Maximum number of concurrent sessions handled by the queue.
+  max_concurrent_sessions: 100
+  # Request timeout in seconds.
+  request_timeout: 300
+
+# Logging settings.
+logging:
+  # Supported levels: debug, info, warn, error.
+  level: "info"
+  # Supported formats: json, text.
+  format: "json"
+  # Supported outputs: stdout, file, both.
+  output: "stdout"
+  # Log file path when output includes file.
+  file: "logs/friday.log"
+  # Maximum single log file size (MB).
+  max_size: 100
+  # Maximum number of backup log files.
+  max_backups: 5
+  # Backup retention in days.
+  max_age: 30
+
+# Built-in cron service settings.
+cronjob:
+  # Enable or disable the scheduler.
+  enabled: true
+  # Persistent storage file for cron jobs.
+  store: "cronjob/jobs.json"
+  # Max number of cron jobs running at the same time.
+  max_concurrent_runs: 1
+  # Default timeout for each job in seconds.
+  job_timeout_sec: 300
+  # Session retention duration (for future use).
+  session_retention: "24h"
+
+# Agent definitions. Key = agent ID.
+agents:
+  default:
+    # Display name for the default agent.
+    name: "Default"
+    # Workspace directory for this agent.
+    workspace: "workspace"
+    # Allowed channel IDs for this agent. Empty means unrestricted.
+    channels:
+      - "telegram-main"
+    # Enabled skills. Empty means all available skills.
+    skills: []
+    # Model routing settings.
+    models:
+      # Required format: provider_id:model_name
+      primary: "openai-main:gpt-4o-mini"
+      fallback:
+        - "openai-main:gpt-4.1-mini"
+    # Runtime behavior for the agent loop.
+    config:
+      max_iterations: 10
+      max_tokens: 4000
+      temperature: 0.7
+
+# Channel definitions. Key = channel ID.
+channels:
+  telegram-main:
+    # Supported values: telegram, lark, http.
+    type: "telegram"
+    enabled: true
+    security:
+      # Supported values: welcome, silent, custom.
+      policy: "welcome"
+      # Welcome-mode response window in seconds.
+      welcome_window: 300
+      # Maximum responses allowed in welcome window.
+      max_resp: 3
+      # Required when policy is custom.
+      custom_text: ""
+    # ACL key must be "group:*" or "user:*".
+    acl:
+      "group:<YOUR_CHAT_ID>":
+        allow: []
+        block: []
+    # Channel-specific telegram config.
+    config:
+      token: "${TELEGRAM_BOT_TOKEN}"
+      poll_timeout: 30
+      max_workers: 10
+
+# Provider definitions. Key = provider ID.
+providers:
+  openai-main:
+    # Supported values: openai, anthropic, gemini, ollama, qwen.
+    type: "openai"
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "https://api.openai.com/v1"
+    config:
+      default_model: "gpt-4o-mini"
+      timeout: 60
+      max_retries: 3
+
+  anthropic-main:
+    type: "anthropic"
+    api_key: "${ANTHROPIC_API_KEY}"
+    base_url: "https://api.anthropic.com"
+    config:
+      default_model: "claude-3-5-sonnet-20241022"
+      timeout: 60
+      max_retries: 3

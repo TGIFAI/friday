@@ -21,8 +21,9 @@ output/
 *.local
 
 # Local config overrides
-conf/*.yaml
-!conf/config.yaml.example
+config.yaml
+config.yaml.*
+!config.yaml.example
 
 # Go build / test artifacts
 friday
@@ -35,3 +36,4 @@ coverage-*.out
 *.coverprofile
 *.pprof
 
+.claude/
