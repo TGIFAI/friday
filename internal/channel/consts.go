@@ -22,6 +22,24 @@ var SupportedChannels = []Type{
 	HTTP,
 }
 
+// AttachmentType identifies the kind of media attached to a message.
+type AttachmentType string
+
+const (
+	AttachmentImage AttachmentType = "image"
+	AttachmentVoice AttachmentType = "voice"
+)
+
+// Attachment holds downloaded media content from a channel message.
+// Data contains the raw bytes; the agent layer base64-encodes them before
+// passing to the LLM. Attachments are NOT persisted to session history.
+type Attachment struct {
+	Type     AttachmentType
+	Data     []byte
+	MIMEType string // e.g. "image/jpeg", "audio/ogg"
+	FileName string
+}
+
 type Message struct {
 	ID          string
 	ChannelID   string // ChannelID
@@ -31,6 +49,7 @@ type Message struct {
 	Content     string
 	SessionKey  string
 	Metadata    map[string]string
+	Attachments []Attachment
 }
 
 type Response struct {

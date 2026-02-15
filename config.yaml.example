@@ -97,6 +97,14 @@ channels:
       verification_token: "${LARK_VERIFICATION_TOKEN}"
       encrypt_key: "${LARK_ENCRYPT_KEY}"
 
+  http-main:
+    type: "http"
+    enabled: true
+    config:
+      # Optional bearer token for authenticating requests.
+      # When set, requests must include "Authorization: Bearer <api_key>".
+      api_key: "${HTTP_API_KEY}"
+
 # Provider definitions. Key = provider ID.
 providers:
   openai-main:

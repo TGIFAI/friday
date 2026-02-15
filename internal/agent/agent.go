@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/cloudwego/eino/schema"
@@ -13,6 +14,7 @@ import (
 	"github.com/tgifai/friday/internal/agent/tool/msgx"
 	"github.com/tgifai/friday/internal/agent/tool/qmdx"
 	"github.com/tgifai/friday/internal/agent/tool/shellx"
+	"github.com/tgifai/friday/internal/agent/tool/webx"
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/pkg/logs"
@@ -87,6 +89,10 @@ func (ag *Agent) Init(_ context.Context) error {
 		_ = ag.tools.Register(qmdx.NewGetTool())
 	}
 
+	// web tools
+	_ = ag.tools.Register(webx.NewFetchTool())
+	_ = ag.tools.Register(webx.NewSearchTool())
+
 	return nil
 }
 
@@ -114,9 +120,8 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 		}
 	}()
 
-	// TODO there might be some medias
 	// Append the user message exactly once for this turn.
-	sess.Append(&schema.Message{Role: "user", Content: msg.Content})
+	sess.Append(buildUserMessage(msg))
 
 	var resp *channel.Response
 	models := append([]string{agCfg.Models.Primary}, agCfg.Models.Fallback...)
@@ -147,4 +152,54 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 		}
 	}
 	return resp, nil
+}
+
+// buildUserMessage constructs a schema.Message from a channel message.
+// When attachments are present, it builds a multimodal message with base64-
+// encoded inline data; otherwise it falls back to a plain text message.
+func buildUserMessage(msg *channel.Message) *schema.Message {
+	if len(msg.Attachments) == 0 {
+		return &schema.Message{Role: schema.User, Content: msg.Content}
+	}
+
+	var parts []schema.MessageInputPart
+
+	if msg.Content != "" {
+		parts = append(parts, schema.MessageInputPart{
+			Type: schema.ChatMessagePartTypeText,
+			Text: msg.Content,
+		})
+	}
+
+	for _, att := range msg.Attachments {
+		b64 := base64.StdEncoding.EncodeToString(att.Data)
+		switch att.Type {
+		case channel.AttachmentImage:
+			parts = append(parts, schema.MessageInputPart{
+				Type: schema.ChatMessagePartTypeImageURL,
+				Image: &schema.MessageInputImage{
+					MessagePartCommon: schema.MessagePartCommon{
+						Base64Data: &b64,
+						MIMEType:   att.MIMEType,
+					},
+					Detail: schema.ImageURLDetailAuto,
+				},
+			})
+		case channel.AttachmentVoice:
+			parts = append(parts, schema.MessageInputPart{
+				Type: schema.ChatMessagePartTypeAudioURL,
+				Audio: &schema.MessageInputAudio{
+					MessagePartCommon: schema.MessagePartCommon{
+						Base64Data: &b64,
+						MIMEType:   att.MIMEType,
+					},
+				},
+			})
+		}
+	}
+
+	return &schema.Message{
+		Role:                  schema.User,
+		UserInputMultiContent: parts,
+	}
 }

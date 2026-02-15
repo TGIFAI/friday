@@ -21,6 +21,13 @@ import (
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
+const (
+	// maxImageSize is the upper bound for downloading images (3 MB).
+	maxImageSize = 3 * 1024 * 1024
+	// maxVoiceSize is the upper bound for downloading voice/audio (1 MB).
+	maxVoiceSize = 1 * 1024 * 1024
+)
+
 var _ channel.Channel = (*Lark)(nil)
 
 type Lark struct {
@@ -125,19 +132,55 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 		return nil
 	}
 
-	// Only handle text messages.
-	if msg.MessageType != nil && *msg.MessageType != "text" {
-		logs.CtxDebug(ctx, "[channel:lark] ignoring non-text message type: %s", *msg.MessageType)
+	msgType := ""
+	if msg.MessageType != nil {
+		msgType = *msg.MessageType
+	}
+
+	var content string
+	var attachments []channel.Attachment
+
+	switch msgType {
+	case "text":
+		text, err := extractText(msg.Content)
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:lark] failed to extract text: %v", err)
+			return nil
+		}
+		content = text
+
+	case "image":
+		imageKey, err := extractKey(msg.Content, "image_key")
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:lark] failed to extract image_key: %v", err)
+			return nil
+		}
+		att, err := l.downloadResource(ctx, *msg.MessageId, imageKey, "image", channel.AttachmentImage, "image/png")
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:lark] download image: %v", err)
+		} else if att != nil {
+			attachments = append(attachments, *att)
+		}
+
+	case "audio":
+		fileKey, err := extractKey(msg.Content, "file_key")
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:lark] failed to extract audio file_key: %v", err)
+			return nil
+		}
+		att, err := l.downloadResource(ctx, *msg.MessageId, fileKey, "file", channel.AttachmentVoice, "audio/ogg")
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:lark] download audio: %v", err)
+		} else if att != nil {
+			attachments = append(attachments, *att)
+		}
+
+	default:
+		logs.CtxDebug(ctx, "[channel:lark] ignoring message type: %s", msgType)
 		return nil
 	}
 
-	// Lark message content is JSON: {"text":"actual text"}
-	text, err := extractText(msg.Content)
-	if err != nil {
-		logs.CtxWarn(ctx, "[channel:lark] failed to extract text from content: %v", err)
-		return nil
-	}
-	if text == "" {
+	if content == "" && len(attachments) == 0 {
 		return nil
 	}
 
@@ -165,8 +208,9 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 		ChannelType: channel.Lark,
 		UserID:      userID,
 		ChatID:      chatID,
-		Content:     text,
+		Content:     content,
 		Metadata:    metadata,
+		Attachments: attachments,
 	}
 
 	l.mu.RLock()
@@ -179,6 +223,47 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 		}
 	}
 	return nil
+}
+
+// downloadResource downloads a message resource (image or file) from Lark.
+// Returns nil (no error) if the downloaded data exceeds the size limit.
+func (l *Lark) downloadResource(ctx context.Context, messageID, fileKey, resType string, attType channel.AttachmentType, defaultMIME string) (*channel.Attachment, error) {
+	resp, err := l.client.Im.MessageResource.Get(ctx,
+		larkim.NewGetMessageResourceReqBuilder().
+			MessageId(messageID).
+			FileKey(fileKey).
+			Type(resType).
+			Build())
+	if err != nil {
+		return nil, fmt.Errorf("get resource: %w", err)
+	}
+	if !resp.Success() {
+		return nil, fmt.Errorf("get resource failed: code=%d msg=%s", resp.Code, resp.Msg)
+	}
+
+	data, err := io.ReadAll(resp.File)
+	if err != nil {
+		return nil, fmt.Errorf("read resource body: %w", err)
+	}
+
+	var limit int
+	switch attType {
+	case channel.AttachmentImage:
+		limit = maxImageSize
+	default:
+		limit = maxVoiceSize
+	}
+	if len(data) > limit {
+		logs.CtxDebug(ctx, "[channel:lark] resource too large (%d bytes), skipping", len(data))
+		return nil, nil
+	}
+
+	return &channel.Attachment{
+		Type:     attType,
+		Data:     data,
+		MIMEType: defaultMIME,
+		FileName: resp.FileName,
+	}, nil
 }
 
 // newEventHandler returns a Hertz handler that adapts the SDK event dispatcher.
@@ -230,4 +315,21 @@ func extractText(content *string) (string, error) {
 		return "", fmt.Errorf("unmarshal lark message content: %w", err)
 	}
 	return parsed.Text, nil
+}
+
+// extractKey parses a named key from the JSON content field.
+// Lark uses {"image_key":"..."} for images, {"file_key":"..."} for audio/files.
+func extractKey(content *string, key string) (string, error) {
+	if content == nil || *content == "" {
+		return "", fmt.Errorf("content is empty")
+	}
+	var parsed map[string]string
+	if err := sonic.UnmarshalString(*content, &parsed); err != nil {
+		return "", fmt.Errorf("unmarshal content: %w", err)
+	}
+	val, ok := parsed[key]
+	if !ok || val == "" {
+		return "", fmt.Errorf("key %q not found in content", key)
+	}
+	return val, nil
 }

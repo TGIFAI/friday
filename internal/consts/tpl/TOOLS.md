@@ -8,8 +8,9 @@ This file documents the tools currently registered by the Agent and how to call 
 2. Prefer `edit` for minimal changes; use `write` for full overwrite.
 3. Use `exec` for short synchronous commands.
 4. Use `process` for long-running background jobs.
-5. Use exact parameter names when possible.
-6. Paths can be relative to workspace or absolute. Out-of-scope paths fail with `path not allowed`.
+5. Use `web_search` + `web_fetch` for web research; use `render_js` only when direct fetch fails on JS-heavy pages.
+6. Use exact parameter names when possible.
+7. Paths can be relative to workspace or absolute. Out-of-scope paths fail with `path not allowed`.
 
 ## Tool Index
 
@@ -24,6 +25,8 @@ This file documents the tools currently registered by the Agent and how to call 
 - `message`: send message to a channel/chat
 - `knowledge_search`: search local knowledge base (requires `qmd`)
 - `knowledge_get`: retrieve full document from knowledge base (requires `qmd`)
+- `web_fetch`: fetch a URL and extract content as markdown
+- `web_search`: search the web via Brave Search API (requires `BRAVE_API_KEY`)
 
 ---
 
@@ -360,6 +363,93 @@ Example:
 
 ---
 
+## 12) `web_fetch`
+
+Purpose: fetch a URL and extract its main content as clean markdown. Handles HTML pages (via readability extraction), JSON endpoints, and optionally JS-heavy pages via Cloudflare Browser Rendering.
+
+Parameters:
+- `url` (string, required) - the URL to fetch (must be http or https)
+- `max_chars` (number, optional) - maximum characters to return, default 50000
+- `render_js` (bool, optional) - set `true` to use Cloudflare Browser Rendering for JS-heavy SPAs (requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` env vars; falls back to direct fetch if not configured)
+
+Content handling:
+- `text/markdown` response → used directly (content negotiation with Cloudflare-fronted sites)
+- `text/html` response → readability extraction → markdown conversion
+- `application/json` response → pretty-printed JSON
+- other → raw text
+
+Security:
+- Only `http` and `https` schemes allowed
+- Private/loopback/link-local addresses are blocked (SSRF protection)
+- Redirects capped at 5; redirects to private addresses are blocked
+- Response body capped at 5 MiB
+
+Success response (JSON string):
+- `url` (string) - final URL after redirects
+- `title` (string) - page title (HTML only)
+- `status` (number) - HTTP status code
+- `length` (number) - content length in characters
+- `truncated` (bool) - whether content was truncated to `max_chars`
+- `content` (string) - extracted content
+
+Common failures:
+- `url is required`
+- `only http and https URLs are allowed`
+- `access to private/internal addresses is not allowed`
+- `cloudflare render: ...` (when `render_js=true`)
+
+Examples:
+```json
+{"url":"https://example.com/blog/post-1"}
+```
+
+```json
+{"url":"https://api.example.com/data","max_chars":10000}
+```
+
+```json
+{"url":"https://spa-heavy-site.com","render_js":true}
+```
+
+---
+
+## 13) `web_search`
+
+Purpose: search the web using Brave Search API. Returns titles, URLs, and snippets for the top results.
+
+Availability: always registered, but requires `BRAVE_API_KEY` environment variable at execution time. Returns an error if the env var is not set.
+
+Parameters:
+- `query` (string, required) - the search query
+- `count` (number, optional) - number of results to return, 1–10, default 5
+
+Success response (formatted text):
+```
+Results for: <query>
+
+1. <title>
+   <url>
+   <snippet>
+
+2. ...
+```
+
+Common failures:
+- `query is required`
+- `BRAVE_API_KEY environment variable is not set; web search is unavailable`
+- `search failed: ...`
+
+Examples:
+```json
+{"query":"Go readability library","count":3}
+```
+
+```json
+{"query":"cloudflare browser rendering markdown API"}
+```
+
+---
+
 ## Suggested LLM Playbooks
 
 ### Code change task
@@ -378,3 +468,9 @@ Example:
 1. `knowledge_search` to find relevant docs/notes
 2. `knowledge_get` only when you need the full content of a specific result
 3. Incorporate retrieved knowledge into your response or code changes
+
+### Web research task
+1. `web_search` to find relevant pages
+2. `web_fetch` to read the most relevant URLs from search results
+3. Use `render_js=true` only for JS-heavy SPAs where direct fetch returns empty/broken content
+4. Summarize findings and incorporate into your response

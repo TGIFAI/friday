@@ -15,6 +15,7 @@ import (
 	"github.com/tgifai/friday/internal/agent"
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/channel"
+	httpch "github.com/tgifai/friday/internal/channel/http"
 	"github.com/tgifai/friday/internal/channel/lark"
 	"github.com/tgifai/friday/internal/channel/telegram"
 	"github.com/tgifai/friday/internal/config"
@@ -238,6 +239,8 @@ func newChannel(id string, cfg config.ChannelConfig, httpServer *hzServer.Hertz)
 		return telegram.NewChannel(id, &cfg)
 	case channel.Lark:
 		return lark.NewChannel(id, &cfg, httpServer)
+	case channel.HTTP:
+		return httpch.NewChannel(id, &cfg, httpServer)
 	default:
 		return nil, fmt.Errorf("unsupported channel type: %s", cfg.Type)
 	}

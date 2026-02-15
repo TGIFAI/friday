@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"sync"
 
@@ -13,6 +15,13 @@ import (
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/pkg/logs"
+)
+
+const (
+	// maxImageSize is the upper bound for downloading images (3 MB).
+	maxImageSize int64 = 3 * 1024 * 1024
+	// maxVoiceSize is the upper bound for downloading voice/audio (1 MB).
+	maxVoiceSize int64 = 1 * 1024 * 1024
 )
 
 var (
@@ -37,24 +46,27 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, er
 		return nil, fmt.Errorf("parse telegram config: %w", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
+	tg := &Telegram{
+		id:     chanId,
+		config: *cfg,
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
 	opts := []bot.Option{
-		bot.WithDefaultHandler(defaultHandler),
+		bot.WithDefaultHandler(tg.handleUpdate),
 	}
 
 	tgBot, err := bot.New(cfg.Token, opts...)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create telegram bot: %w", err)
 	}
+	tg.bot = tgBot
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	return &Telegram{
-		id:     chanId,
-		config: *cfg,
-		bot:    tgBot,
-		ctx:    ctx,
-		cancel: cancel,
-	}, nil
+	return tg, nil
 }
 
 func (c *Telegram) ID() string {
@@ -74,7 +86,6 @@ func (c *Telegram) Start(ctx context.Context) error {
 }
 
 func (c *Telegram) startPolling(ctx context.Context) error {
-	c.bot.RegisterHandler(bot.HandlerTypeMessageText, "", bot.MatchTypePrefix, c.handleMessage)
 	c.bot.Start(ctx)
 	return nil
 }
@@ -204,30 +215,77 @@ func (c *Telegram) RegisterMessageHandler(handler func(ctx context.Context, msg 
 	return nil
 }
 
-// handleMessage normalizes a Telegram update into a channel.Message and
-// forwards it to the registered handler. All security, command routing, and
-// ACL checks are performed by the gateway layer.
-func (c *Telegram) handleMessage(ctx context.Context, b *bot.Bot, update *models.Update) {
+// handleUpdate is the default handler for all incoming Telegram updates.
+// It normalizes text, photo, voice, and audio messages into a channel.Message
+// and forwards them to the registered handler.
+func (c *Telegram) handleUpdate(ctx context.Context, b *bot.Bot, update *models.Update) {
 	msg := update.Message
-	if msg == nil || msg.From == nil || msg.Text == "" {
+	if msg == nil || msg.From == nil {
+		return
+	}
+
+	// Determine textual content: prefer Text, fall back to Caption.
+	content := msg.Text
+	if content == "" {
+		content = msg.Caption
+	}
+
+	// Extract attachments from media fields.
+	var attachments []channel.Attachment
+
+	if len(msg.Photo) > 0 {
+		att, err := c.extractPhoto(ctx, msg.Photo)
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:telegram] download photo: %v", err)
+		} else if att != nil {
+			attachments = append(attachments, *att)
+		}
+	}
+
+	if msg.Voice != nil {
+		att, err := c.extractVoice(ctx, msg.Voice)
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:telegram] download voice: %v", err)
+		} else if att != nil {
+			attachments = append(attachments, *att)
+		}
+	}
+
+	if msg.Audio != nil {
+		att, err := c.extractAudio(ctx, msg.Audio)
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:telegram] download audio: %v", err)
+		} else if att != nil {
+			attachments = append(attachments, *att)
+		}
+	}
+
+	// Drop the message if there is no text and no attachment.
+	if content == "" && len(attachments) == 0 {
 		return
 	}
 
 	messageID := strconv.Itoa(msg.ID)
+	metadata := map[string]string{
+		"message_id": messageID,
+		"chat_type":  string(msg.Chat.Type),
+		"username":   msg.From.Username,
+		"first_name": msg.From.FirstName,
+		"last_name":  msg.From.LastName,
+	}
+	if msg.ForwardOrigin != nil {
+		metadata["forwarded"] = "true"
+	}
+
 	channelMsg := &channel.Message{
 		ID:          messageID,
 		ChannelID:   c.id,
 		ChannelType: channel.Telegram,
 		UserID:      strconv.FormatInt(msg.From.ID, 10),
 		ChatID:      strconv.FormatInt(msg.Chat.ID, 10),
-		Content:     msg.Text,
-		Metadata: map[string]string{
-			"message_id": messageID,
-			"chat_type":  string(msg.Chat.Type),
-			"username":   msg.From.Username,
-			"first_name": msg.From.FirstName,
-			"last_name":  msg.From.LastName,
-		},
+		Content:     content,
+		Metadata:    metadata,
+		Attachments: attachments,
 	}
 
 	c.mu.RLock()
@@ -246,7 +304,95 @@ func (c *Telegram) handleMessage(ctx context.Context, b *bot.Bot, update *models
 	}
 }
 
-func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {}
+// extractPhoto picks the largest photo size and downloads it if within the
+// size limit. Returns nil (no error) when the photo is too large.
+func (c *Telegram) extractPhoto(ctx context.Context, photos []models.PhotoSize) (*channel.Attachment, error) {
+	if len(photos) == 0 {
+		return nil, nil
+	}
+	// Telegram sends multiple sizes; the last one is the largest.
+	best := photos[len(photos)-1]
+	if int64(best.FileSize) > maxImageSize {
+		logs.CtxDebug(ctx, "[channel:telegram] photo too large (%d bytes), skipping", best.FileSize)
+		return nil, nil
+	}
+	data, err := c.downloadFile(ctx, best.FileID)
+	if err != nil {
+		return nil, err
+	}
+	return &channel.Attachment{
+		Type:     channel.AttachmentImage,
+		Data:     data,
+		MIMEType: "image/jpeg",
+	}, nil
+}
+
+// extractVoice downloads a voice message if within the size limit.
+func (c *Telegram) extractVoice(ctx context.Context, v *models.Voice) (*channel.Attachment, error) {
+	if v.FileSize > maxVoiceSize {
+		logs.CtxDebug(ctx, "[channel:telegram] voice too large (%d bytes), skipping", v.FileSize)
+		return nil, nil
+	}
+	data, err := c.downloadFile(ctx, v.FileID)
+	if err != nil {
+		return nil, err
+	}
+	mime := v.MimeType
+	if mime == "" {
+		mime = "audio/ogg"
+	}
+	return &channel.Attachment{
+		Type:     channel.AttachmentVoice,
+		Data:     data,
+		MIMEType: mime,
+	}, nil
+}
+
+// extractAudio downloads an audio file if within the size limit.
+func (c *Telegram) extractAudio(ctx context.Context, a *models.Audio) (*channel.Attachment, error) {
+	if a.FileSize > maxVoiceSize {
+		logs.CtxDebug(ctx, "[channel:telegram] audio too large (%d bytes), skipping", a.FileSize)
+		return nil, nil
+	}
+	data, err := c.downloadFile(ctx, a.FileID)
+	if err != nil {
+		return nil, err
+	}
+	mime := a.MimeType
+	if mime == "" {
+		mime = "audio/mpeg"
+	}
+	return &channel.Attachment{
+		Type:     channel.AttachmentVoice,
+		Data:     data,
+		MIMEType: mime,
+		FileName: a.FileName,
+	}, nil
+}
+
+// downloadFile retrieves a file from the Telegram servers by file ID.
+func (c *Telegram) downloadFile(ctx context.Context, fileID string) ([]byte, error) {
+	file, err := c.bot.GetFile(ctx, &bot.GetFileParams{FileID: fileID})
+	if err != nil {
+		return nil, fmt.Errorf("get file: %w", err)
+	}
+	link := c.bot.FileDownloadLink(file)
+
+	resp, err := http.Get(link) //nolint:gosec // URL comes from Telegram API
+	if err != nil {
+		return nil, fmt.Errorf("download file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download file: HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read file body: %w", err)
+	}
+	return data, nil
+}
 
 func toTelegramChatAction(action channel.ChatAction) (models.ChatAction, error) {
 	switch action {
