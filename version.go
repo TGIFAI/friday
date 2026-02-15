@@ -1,6 +1,7 @@
 package friday
 
 var (
-	DATE  string = "not provided (use build.sh instead of 'go build')"
-	MAGIC string = "not provided (use build.sh instead of 'go build')"
+	DATE    string = "n/a"
+	MAGIC   string = "n/a"
+	VERSION string = "n/a"
 )

@@ -13,6 +13,7 @@ import (
 	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/gateway"
 	"github.com/tgifai/friday/internal/pkg/logs"
+	"github.com/tgifai/friday/internal/pkg/updater"
 )
 
 var gwHwd = &GatewayRunner{}
@@ -64,6 +65,11 @@ func (r *GatewayRunner) run(ctx context.Context, _ *cli.Command) error {
 	}
 
 	logs.CtxInfo(ctx, "ALL IS WELL!!! Press Ctrl+C to stop.")
+
+	if cfg.Gateway.AutoUpdate {
+		logs.CtxInfo(ctx, "auto-update enabled, starting background checker...")
+		go updater.StartAutoUpdate(ctx, updater.New(), 0)
+	}
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)

@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -30,10 +29,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Cronjob.JobTimeoutSec <= 0 {
 		c.Cronjob.JobTimeoutSec = 300
-	}
-	c.Cronjob.Store = strings.TrimSpace(c.Cronjob.Store)
-	if c.Cronjob.Store == "" {
-		c.Cronjob.Store = filepath.Join("output", "cron", "jobs.json")
 	}
 	c.Cronjob.SessionRetention = strings.TrimSpace(c.Cronjob.SessionRetention)
 	if c.Cronjob.SessionRetention == "" {

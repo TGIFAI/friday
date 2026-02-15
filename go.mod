@@ -3,6 +3,7 @@ module github.com/tgifai/friday
 go 1.24.13
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/bytedance/gg v1.1.0
 	github.com/bytedance/gopkg v0.1.3
 	github.com/bytedance/sonic v1.15.0
@@ -14,9 +15,12 @@ require (
 	github.com/cloudwego/eino-ext/components/model/qwen v0.1.5
 	github.com/cloudwego/hertz v0.10.4
 	github.com/eino-contrib/ollama v0.1.0
+	github.com/fatih/color v1.18.0
 	github.com/go-telegram/bot v1.18.0
 	github.com/gomarkdown/markdown v0.0.0-20250810172220-2e2c11897d1a
 	github.com/google/uuid v1.6.0
+	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/urfave/cli/v3 v3.6.2
 	google.golang.org/genai v1.46.0
@@ -54,7 +58,6 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eino-contrib/jsonschema v1.0.3 // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
-	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect

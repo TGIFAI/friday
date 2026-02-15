@@ -54,6 +54,11 @@ See `config.yaml.example` for structure. Key sections: `gateway` (bind address, 
 
 GitHub Actions (`release.yaml`) triggers on git tags. Builds cross-platform binaries (linux/darwin amd64+arm64, windows amd64) with version injection via ldflags (`DATE`, `GIT_SHA`).
 
+## Coding Conventions
+
+- For JSON serialization/deserialization, use `github.com/bytedance/sonic` by default.
+- For type conversion (especially `interface{}` to concrete types such as `string`, `int`, `bool`), prefer helpers from `github.com/bytedance/gg` (for example `gconv`).
+
 ## Module
 
 Go 1.24.0 — module path: `github.com/tgifai/friday`

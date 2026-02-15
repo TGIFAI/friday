@@ -2,7 +2,9 @@ package shellx
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -174,6 +176,112 @@ func TestProcessToolLifecycle(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("process %s not found in list", processID)
+	}
+}
+
+func TestExecToolTimeoutCappedAtMax(t *testing.T) {
+	tl := NewExecTool("")
+	timeout := tl.resolveTimeout(map[string]interface{}{"timeout": 9999})
+	if timeout != maxTimeout {
+		t.Fatalf("expected timeout capped at %v, got %v", maxTimeout, timeout)
+	}
+}
+
+func TestExecToolOutputTruncation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-focused")
+	}
+
+	tl := NewExecTool("")
+	// Generate output larger than maxExecOutputBytes (1 MiB).
+	// Each line is ~80 chars, so 20000 lines ≈ 1.6 MiB.
+	out, err := tl.Execute(context.Background(), map[string]interface{}{
+		"command": "yes 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' | head -n 20000",
+		"timeout": 10,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	res := out.(map[string]interface{})
+	if res["truncated"] != true {
+		t.Fatalf("expected truncated=true for large output")
+	}
+	stdout := res["stdout"].(string)
+	if len(stdout) > maxExecOutputBytes {
+		t.Fatalf("stdout should be capped at %d bytes, got %d", maxExecOutputBytes, len(stdout))
+	}
+}
+
+func TestResolveWorkDir(t *testing.T) {
+	workspace := t.TempDir()
+
+	t.Run("empty returns workspace", func(t *testing.T) {
+		got := resolveWorkDir(workspace, map[string]interface{}{})
+		if got != workspace {
+			t.Fatalf("expected %q, got %q", workspace, got)
+		}
+	})
+
+	t.Run("relative path joined with workspace", func(t *testing.T) {
+		got := resolveWorkDir(workspace, map[string]interface{}{"working_dir": "sub"})
+		want := filepath.Join(workspace, "sub")
+		if got != want {
+			t.Fatalf("expected %q, got %q", want, got)
+		}
+	})
+
+	t.Run("absolute path outside workspace rejected", func(t *testing.T) {
+		got := resolveWorkDir(workspace, map[string]interface{}{"working_dir": "/tmp"})
+		if got != workspace {
+			t.Fatalf("expected workspace %q for out-of-scope path, got %q", workspace, got)
+		}
+	})
+
+	t.Run("absolute path inside workspace allowed", func(t *testing.T) {
+		sub := filepath.Join(workspace, "inner")
+		got := resolveWorkDir(workspace, map[string]interface{}{"working_dir": sub})
+		if got != sub {
+			t.Fatalf("expected %q, got %q", sub, got)
+		}
+	})
+}
+
+func TestProcessToolActiveLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-focused")
+	}
+
+	tl := NewProcessTool("")
+
+	// Start maxActiveProcesses long-running processes.
+	for i := 0; i < maxActiveProcesses; i++ {
+		_, err := tl.Execute(context.Background(), map[string]interface{}{
+			"action":  "start",
+			"command": "sleep 30",
+		})
+		if err != nil {
+			t.Fatalf("start #%d failed: %v", i, err)
+		}
+	}
+
+	// The next start should be rejected.
+	_, err := tl.Execute(context.Background(), map[string]interface{}{
+		"action":  "start",
+		"command": "echo should-fail",
+	})
+	if err == nil {
+		t.Fatal("expected error when exceeding active process limit")
+	}
+	if !strings.Contains(err.Error(), "too many active processes") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Kill all.
+	for i := 1; i <= maxActiveProcesses; i++ {
+		_, _ = tl.Execute(context.Background(), map[string]interface{}{
+			"action":     "kill",
+			"process_id": fmt.Sprintf("proc-%d", i),
+		})
 	}
 }
 

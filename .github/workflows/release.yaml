@@ -67,7 +67,7 @@ jobs:
 
           CGO_ENABLED=0 go build \
             -trimpath \
-            -ldflags="-s -w -X github.com/tgifai/friday.DATE=${DATE} -X github.com/tgifai/friday.MAGIC=${GIT_SHA}" \
+            -ldflags="-s -w -X github.com/tgifai/friday.DATE=${DATE} -X github.com/tgifai/friday.MAGIC=${GIT_SHA} -X github.com/tgifai/friday.VERSION=${VERSION}" \
             -o "output/${NAME}${EXT}" \
             ./cmd/friday
 

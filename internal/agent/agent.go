@@ -11,6 +11,8 @@ import (
 	"github.com/tgifai/friday/internal/agent/tool"
 	"github.com/tgifai/friday/internal/agent/tool/filex"
 	"github.com/tgifai/friday/internal/agent/tool/msgx"
+	"github.com/tgifai/friday/internal/agent/tool/qmdx"
+	"github.com/tgifai/friday/internal/agent/tool/shellx"
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/pkg/logs"
@@ -75,6 +77,16 @@ func (ag *Agent) Init(_ context.Context) error {
 	// msg related tools
 	_ = ag.tools.Register(msgx.NewMessageTool())
 
+	// shell related tools
+	_ = ag.tools.Register(shellx.NewExecTool(ag.workspace))
+	_ = ag.tools.Register(shellx.NewProcessTool(ag.workspace))
+
+	// knowledge base tools (only if qmd CLI is available)
+	if qmdx.Available() {
+		_ = ag.tools.Register(qmdx.NewSearchTool())
+		_ = ag.tools.Register(qmdx.NewGetTool())
+	}
+
 	return nil
 }
 
@@ -119,7 +131,7 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 			logs.CtxWarn(ctx, "[agent:%s] provider not found: %s", ag.id, ms.ProviderID)
 			continue
 		}
-		resp, err = ag.runLoop(ctx, prov, ms, sess, msg)
+		resp, err = ag.runLoop(ctx, prov, ms, sess, msg, agCfg.Config)
 		if err != nil {
 			logs.CtxWarn(ctx, "[agent:%s] model %s failed: %v", ag.id, ms, err)
 			continue

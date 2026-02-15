@@ -15,9 +15,12 @@ import (
 	"github.com/tgifai/friday/internal/agent"
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/channel"
+	"github.com/tgifai/friday/internal/channel/lark"
 	"github.com/tgifai/friday/internal/channel/telegram"
 	"github.com/tgifai/friday/internal/config"
+	"github.com/tgifai/friday/internal/cronjob"
 	"github.com/tgifai/friday/internal/pkg/logs"
+	pkgutils "github.com/tgifai/friday/internal/pkg/utils"
 	"github.com/tgifai/friday/internal/provider"
 	"github.com/tgifai/friday/internal/provider/anthropic"
 	"github.com/tgifai/friday/internal/provider/gemini"
@@ -29,10 +32,12 @@ import (
 const typingInterval = 3 * time.Second
 
 type Gateway struct {
-	agentRegistry *agentRegistry
-	agents        sync.Map
-	msgQueue      *MessageQueue
-	httpServer    *hzServer.Hertz
+	agents     sync.Map
+	commands   *CommandRouter
+	security   *SecurityGuard
+	msgQueue   *MessageQueue
+	httpServer *hzServer.Hertz
+	scheduler  *cronjob.Scheduler
 
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -60,8 +65,13 @@ func NewGateway(cfg config.GatewayConfig) *Gateway {
 		hzServer.WithExitWaitTime(5*time.Second),
 	)
 
+	commands := newCommandRouter()
+	registerBuiltinCommands(commands)
+
 	gw := &Gateway{
 		httpServer: hzSvr,
+		commands:   commands,
+		security:   &SecurityGuard{},
 		msgQueue: newMessageQueue(QueueOptions{
 			LaneBuffer:    10,
 			MaxConcurrent: cfg.MaxConcurrentSessions,
@@ -94,6 +104,9 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	if err := gw.initChannels(gw.runCtx, cfg.Channels); err != nil {
 		return fmt.Errorf("init channels: %w", err)
 	}
+	if err := gw.initCronjob(gw.runCtx, cfg); err != nil {
+		return fmt.Errorf("init cronjob: %w", err)
+	}
 
 	go gw.httpServer.Spin()
 
@@ -102,6 +115,10 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 func (gw *Gateway) Stop(ctx context.Context) error {
 	gw.stopOnce.Do(func() {
+		if gw.scheduler != nil {
+			gw.scheduler.Stop(ctx)
+		}
+
 		if gw.runCancel != nil {
 			gw.runCancel()
 		}
@@ -191,7 +208,7 @@ func (gw *Gateway) initChannels(ctx context.Context, channels map[string]config.
 			continue
 		}
 
-		ch, err := newChannel(id, cfg)
+		ch, err := newChannel(id, cfg, gw.httpServer)
 		if err != nil {
 			logs.CtxError(ctx, "[gateway] create channel #%s error: %v", id, err)
 			return fmt.Errorf("create channel %s: %w", id, err)
@@ -215,10 +232,12 @@ func (gw *Gateway) initChannels(ctx context.Context, channels map[string]config.
 	return nil
 }
 
-func newChannel(id string, cfg config.ChannelConfig) (channel.Channel, error) {
+func newChannel(id string, cfg config.ChannelConfig, httpServer *hzServer.Hertz) (channel.Channel, error) {
 	switch channel.Type(strings.ToLower(strings.TrimSpace(cfg.Type))) {
 	case channel.Telegram:
 		return telegram.NewChannel(id, &cfg)
+	case channel.Lark:
+		return lark.NewChannel(id, &cfg, httpServer)
 	default:
 		return nil, fmt.Errorf("unsupported channel type: %s", cfg.Type)
 	}
@@ -253,13 +272,48 @@ func (gw *Gateway) processMessage(ctx context.Context, msg *channel.Message) err
 		return fmt.Errorf("message cannot be nil")
 	}
 
-	logs.CtxDebug(ctx, "[msg] -> (%s#%s) %s", msg.ChannelType, msg.UserID, msg.Content)
+	// --- cron job messages ---
+	if msg.ChannelType == channel.Type("cron") {
+		return gw.processCronMessage(ctx, msg)
+	}
+
+	// --- normal channel messages ---
+	logs.CtxDebug(ctx, "[msg] <- (%s/%s#%s) %s", msg.ChannelType, msg.ChannelID, msg.UserID, pkgutils.Truncate80(msg.Content))
 
 	ch, err := channel.Get(msg.ChannelID)
 	if err != nil {
 		return fmt.Errorf("channel %s not found: %w", msg.ChannelID, err)
 	}
 
+	// 1. Security check (ACL + pairing).
+	cfg, err := config.Get()
+	if err != nil {
+		return fmt.Errorf("get config: %w", err)
+	}
+	chCfg, chCfgOK := cfg.Channels[msg.ChannelID]
+	if chCfgOK {
+		allowed, reply := gw.security.Check(ctx, msg, chCfg)
+		if reply != "" {
+			_ = ch.SendMessage(ctx, msg.ChatID, reply)
+		}
+		if !allowed {
+			return nil
+		}
+	}
+
+	// 2. Command interception — bypass agent for built-in commands.
+	if cmd, _, matched := gw.commands.Match(msg.Content); matched {
+		reply, cmdErr := cmd.Handler(ctx, gw, msg)
+		if cmdErr != nil {
+			return fmt.Errorf("command %s failed: %w", cmd.Name, cmdErr)
+		}
+		if reply != "" {
+			_ = ch.SendMessage(ctx, msg.ChatID, reply)
+		}
+		return nil
+	}
+
+	// 3. Normal agent processing.
 	ag, err := gw.getAgentByChannel(msg.ChannelID)
 	if err != nil {
 		return err
@@ -279,6 +333,50 @@ func (gw *Gateway) processMessage(ctx context.Context, msg *channel.Message) err
 	if err := ch.SendMessage(ctx, msg.ChatID, resp.Content); err != nil {
 		return fmt.Errorf("send reply via channel %s failed: %w", msg.ChannelID, err)
 	}
+	logs.CtxDebug(ctx, "[msg] -> (%s/%s#%s) %s", msg.ChannelType, msg.ChannelID, msg.ChatID, pkgutils.Truncate80(resp.Content))
+	return nil
+}
+
+func (gw *Gateway) processCronMessage(ctx context.Context, msg *channel.Message) error {
+	agentID := msg.Metadata["agent_id"]
+	if agentID == "" {
+		return fmt.Errorf("cron message missing agent_id in metadata")
+	}
+
+	val, ok := gw.agents.Load(agentID)
+	if !ok {
+		return fmt.Errorf("agent %s not found for cron job", agentID)
+	}
+	ag := val.(*agent.Agent)
+
+	logs.CtxDebug(ctx, "[cron] -> agent=%s job=%s", agentID, msg.Metadata["cron_job_name"])
+
+	resp, err := ag.ProcessMessage(ctx, msg)
+	if err != nil {
+		return fmt.Errorf("agent %s cron job failed: %w", agentID, err)
+	}
+	if resp == nil || resp.Content == "" {
+		return nil
+	}
+
+	// Heartbeat silent: if agent returns HEARTBEAT_OK, do not deliver.
+	if strings.TrimSpace(resp.Content) == cronjob.HeartbeatOK {
+		logs.CtxDebug(ctx, "[cron] heartbeat OK, nothing to deliver")
+		return nil
+	}
+
+	// Deliver to configured channel (isolated jobs only).
+	if msg.ChannelID != "" {
+		ch, err := channel.Get(msg.ChannelID)
+		if err != nil {
+			logs.CtxWarn(ctx, "[cron] delivery channel %s not found: %v", msg.ChannelID, err)
+			return nil
+		}
+		if err := ch.SendMessage(ctx, msg.ChatID, resp.Content); err != nil {
+			return fmt.Errorf("cron job send reply via channel %s failed: %w", msg.ChannelID, err)
+		}
+	}
+
 	return nil
 }
 
@@ -309,6 +407,25 @@ func (gw *Gateway) getAgentByChannel(channelID string) (*agent.Agent, error) {
 		return nil, fmt.Errorf("agent %s not found in registry", agentID)
 	}
 	return val.(*agent.Agent), nil
+}
+
+func (gw *Gateway) initCronjob(ctx context.Context, cfg *config.Config) error {
+	if cfg.Cronjob.Enabled != nil && !*cfg.Cronjob.Enabled {
+		logs.CtxInfo(ctx, "[gateway] cronjob disabled, skipping")
+		return nil
+	}
+
+	gw.scheduler = cronjob.NewScheduler(cfg.Cronjob, gw.enqueueMsg)
+
+	// Register a built-in heartbeat job for every agent.
+	for id, agCfg := range cfg.Agents {
+		hbJob := cronjob.NewHeartbeatJob(id, agCfg.Workspace, 0)
+		if err := gw.scheduler.AddJob(hbJob, false); err != nil {
+			logs.CtxWarn(ctx, "[gateway] register heartbeat for agent %s: %v", id, err)
+		}
+	}
+
+	return gw.scheduler.Start(ctx)
 }
 
 func (gw *Gateway) keepTyping(ctx context.Context, ch channel.Channel, chatID string) (stop func()) {

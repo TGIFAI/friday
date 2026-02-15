@@ -31,8 +31,6 @@ logging:
 cronjob:
   # Enable or disable the scheduler.
   enabled: true
-  # Persistent storage file for cron jobs.
-  store: "cronjob/jobs.json"
   # Max number of cron jobs running at the same time.
   max_concurrent_runs: 1
   # Default timeout for each job in seconds.
@@ -89,6 +87,15 @@ channels:
       token: "${TELEGRAM_BOT_TOKEN}"
       poll_timeout: 30
       max_workers: 10
+
+  lark-main:
+    type: "lark"
+    enabled: true
+    config:
+      app_id: "${LARK_APP_ID}"
+      app_secret: "${LARK_APP_SECRET}"
+      verification_token: "${LARK_VERIFICATION_TOKEN}"
+      encrypt_key: "${LARK_ENCRYPT_KEY}"
 
 # Provider definitions. Key = provider ID.
 providers:

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/tgifai/friday"
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/consts"
@@ -40,35 +41,36 @@ func (ag *Agent) buildMessages(sess *session.Session, msg *channel.Message, incl
 }
 
 func (ag *Agent) buildRuntimeInformation(msg *channel.Message) string {
-	formatValue := func(value string) string {
-		if strings.TrimSpace(value) == "" {
-			return "N/A"
-		}
-		return value
-	}
+	var b strings.Builder
+	b.WriteString("# Runtime Information\n")
 
-	channelType := "N/A"
-	channelID := "N/A"
-	chatID := "N/A"
-	userID := "N/A"
-	sessionKey := "N/A"
+	// ---- static section (per-agent, prompt-caching friendly) ----
+	fmt.Fprintf(&b, "- agent: %s (id: %s)\n", ag.name, ag.id)
+	fmt.Fprintf(&b, "- workspace: %s\n", ag.workspace)
+	fmt.Fprintf(&b, "- version: %s\n", friday.VERSION)
+	fmt.Fprintf(&b, "- platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(&b, "- shell: %s\n", detectShell())
 
+	// ---- dynamic section (per-request) ----
+	fmt.Fprintf(&b, "- current time: %s\n", time.Now().Format(time.RFC3339))
 	if msg != nil {
-		channelType = formatValue(string(msg.ChannelType))
-		channelID = formatValue(msg.ChannelID)
-		chatID = formatValue(msg.ChatID)
-		userID = formatValue(msg.UserID)
-		sessionKey = formatValue(msg.SessionKey)
+		fmt.Fprintf(&b, "- channel: %s (id: %s)\n", msg.ChannelType, msg.ChannelID)
+		fmt.Fprintf(&b, "- chat id: %s\n", msg.ChatID)
+		fmt.Fprintf(&b, "- user id: %s\n", msg.UserID)
 	}
 
-	prompt := fmt.Sprintf(
-		"# Runtime Information\n- goos: %s\n- goarch: %s\n- session key: %s\n- channel type: %s\n- channel id: %s\n- chat id: %s\n- user id: %s",
-		runtime.GOOS, runtime.GOARCH, sessionKey, channelType, channelID, chatID, userID,
-	)
+	return b.String()
+}
 
-	prompt += "\n- current time: " + time.Now().Format(time.RFC3339)
-
-	return prompt
+// detectShell returns the name of the current user's shell.
+func detectShell() string {
+	if s := os.Getenv("SHELL"); s != "" {
+		return filepath.Base(s)
+	}
+	if runtime.GOOS == "windows" {
+		return "powershell"
+	}
+	return "sh"
 }
 
 func (ag *Agent) buildSystemPrompt() (string, error) {

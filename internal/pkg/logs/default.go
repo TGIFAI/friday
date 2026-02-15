@@ -348,7 +348,7 @@ func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 	_, file, line, ok := runtime.Caller(skip)
 	if ok {
-		file = filepath.Base(file)
+		file = shortFilePath(file)
 	}
 
 	var logID any
@@ -369,6 +369,18 @@ func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	)
 
 	return []byte(logLine), nil
+}
+
+// shortFilePath returns "dir/file.go" (two-level) when a parent directory
+// exists, otherwise just "file.go".
+func shortFilePath(fullPath string) string {
+	dir, file := filepath.Split(fullPath)
+	if dir == "" {
+		return file
+	}
+	dir = filepath.Clean(dir)
+	parent := filepath.Base(dir)
+	return parent + "/" + file
 }
 
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)

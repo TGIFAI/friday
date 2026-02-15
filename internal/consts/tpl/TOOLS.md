@@ -22,6 +22,8 @@ This file documents the tools currently registered by the Agent and how to call 
 - `exec`: run short commands synchronously
 - `process`: manage background processes (`start/status/log/kill/list`)
 - `message`: send message to a channel/chat
+- `knowledge_search`: search local knowledge base (requires `qmd`)
+- `knowledge_get`: retrieve full document from knowledge base (requires `qmd`)
 
 ---
 
@@ -298,6 +300,66 @@ Example:
 
 ---
 
+## 10) `knowledge_search`
+
+Purpose: search the local knowledge base (markdown docs, notes, meeting transcripts) using hybrid BM25 + vector semantic search. Returns relevant snippets instead of full documents to save tokens.
+
+Availability: only registered when `qmd` CLI is installed on the host.
+
+Parameters:
+- `query` (string, required) - search keywords or natural-language question
+- `collection` (string, optional) - restrict search to a named collection
+- `mode` (string, optional) - `query` (default, hybrid+rerank), `search` (BM25 only), `vsearch` (vector only)
+- `limit` (number, optional) - max results, default 5
+
+Success response:
+- `success` (bool)
+- `query` (string)
+- `mode` (string)
+- `count` (number)
+- `results` (array of result objects)
+
+Common failures:
+- `qmd query failed: ...`
+- `query is required`
+
+Example:
+```json
+{"query":"how to deploy the service","mode":"query","limit":3}
+```
+
+---
+
+## 11) `knowledge_get`
+
+Purpose: retrieve a specific document from the local knowledge base by file path or document ID. Use `knowledge_search` first to find relevant documents, then use this tool only when you need the full content.
+
+Availability: only registered when `qmd` CLI is installed on the host.
+
+Parameters:
+- `path` (string, required) - file path or document ID (e.g. `#abc123`)
+
+Success response:
+- `success` (bool)
+- `path` (string)
+- `content` (string)
+- `size` (number)
+
+Common failures:
+- `qmd get failed: ...`
+- `path is required`
+
+Example:
+```json
+{"path":"docs/deployment.md"}
+```
+
+```json
+{"path":"#abc123"}
+```
+
+---
+
 ## Suggested LLM Playbooks
 
 ### Code change task
@@ -311,3 +373,8 @@ Example:
 1. `process start`
 2. poll with `process status` and `process log`
 3. `process kill` if cancellation is needed
+
+### Knowledge-assisted task
+1. `knowledge_search` to find relevant docs/notes
+2. `knowledge_get` only when you need the full content of a specific result
+3. Incorporate retrieved knowledge into your response or code changes

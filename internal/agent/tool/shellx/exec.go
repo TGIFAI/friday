@@ -1,7 +1,6 @@
 package shellx
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +14,11 @@ import (
 
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/security/sandbox"
+)
+
+const (
+	maxExecOutputBytes = 1 << 20 // 1 MiB per stream
+	maxTimeout         = 600 * time.Second
 )
 
 type ExecTool struct {
@@ -61,7 +65,7 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 		return nil, err
 	}
 
-	workingDir := t.resolveWorkingDir(args)
+	workingDir := resolveWorkDir(t.workspace, args)
 	timeout := t.resolveTimeout(args)
 
 	var (
@@ -69,6 +73,7 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 		stderr     []byte
 		exitCode   int
 		timeoutErr bool
+		truncated  bool
 	)
 	if t.executor != nil {
 		res, execErr := t.executor.Execute(ctx, &sandbox.ExecRequest{
@@ -94,7 +99,7 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 		timeoutErr = res.TimedOut
 	} else {
 		var runErr error
-		stdout, stderr, exitCode, timeoutErr, runErr = runExecCommand(ctx, parsedCmd, workingDir, timeout)
+		stdout, stderr, exitCode, timeoutErr, truncated, runErr = runExecCommand(ctx, parsedCmd, workingDir, timeout)
 		if runErr != nil {
 			return nil, runErr
 		}
@@ -106,25 +111,46 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) (in
 
 	logs.CtxInfo(ctx, "[tool:%s] exec: %s (exit_code: %d)", t.Name(), parsedCmd.display, exitCode)
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"success":     exitCode == 0,
 		"command":     parsedCmd.display,
 		"exit_code":   exitCode,
 		"stdout":      string(stdout),
 		"stderr":      string(stderr),
 		"working_dir": workingDir,
-	}, nil
+	}
+	if truncated {
+		result["truncated"] = true
+	}
+	return result, nil
 }
 
-func (t *ExecTool) resolveWorkingDir(args map[string]interface{}) string {
-	workingDir := t.workspace
-	if wd, ok := args["working_dir"].(string); ok && wd != "" {
-		workingDir = wd
-		if !filepath.IsAbs(workingDir) && t.workspace != "" {
-			workingDir = filepath.Join(t.workspace, workingDir)
+// resolveWorkDir resolves the working directory from tool args.
+// Relative paths are joined with workspace. Absolute paths must be within the
+// workspace; if not, workspace is returned instead.
+func resolveWorkDir(workspace string, args map[string]interface{}) string {
+	wd, _ := args["working_dir"].(string)
+	wd = strings.TrimSpace(wd)
+	if wd == "" {
+		return workspace
+	}
+
+	if !filepath.IsAbs(wd) {
+		if workspace != "" {
+			wd = filepath.Join(workspace, wd)
 		}
 	}
-	return workingDir
+
+	// Ensure resolved path is within workspace.
+	if workspace != "" {
+		absWd, err1 := filepath.Abs(wd)
+		absWs, err2 := filepath.Abs(workspace)
+		if err1 == nil && err2 == nil && !strings.HasPrefix(absWd+string(filepath.Separator), absWs+string(filepath.Separator)) && absWd != absWs {
+			return workspace
+		}
+	}
+
+	return wd
 }
 
 func (t *ExecTool) resolveTimeout(args map[string]interface{}) time.Duration {
@@ -135,6 +161,9 @@ func (t *ExecTool) resolveTimeout(args map[string]interface{}) time.Duration {
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
+	if timeout > maxTimeout {
+		timeout = maxTimeout
+	}
 	return timeout
 }
 
@@ -143,7 +172,7 @@ func runExecCommand(
 	parsedCmd *parsedCommand,
 	workingDir string,
 	timeout time.Duration,
-) ([]byte, []byte, int, bool, error) {
+) (stdout []byte, stderr []byte, exitCode int, timedOut bool, truncated bool, runErr error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -153,23 +182,24 @@ func runExecCommand(
 	}
 	setCommandProcessGroup(cmd)
 
-	var stdoutBuf bytes.Buffer
-	var stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	stdoutBuf := newLimitedBuffer(maxExecOutputBytes)
+	stderrBuf := newLimitedBuffer(maxExecOutputBytes)
+	cmd.Stdout = stdoutBuf
+	cmd.Stderr = stderrBuf
 
 	err := cmd.Run()
+	trunc := stdoutBuf.truncated || stderrBuf.truncated
 	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
 		killCommandProcessGroup(cmd)
-		return stdoutBuf.Bytes(), stderrBuf.Bytes(), 0, true, nil
+		return stdoutBuf.Bytes(), stderrBuf.Bytes(), 0, true, trunc, nil
 	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return stdoutBuf.Bytes(), stderrBuf.Bytes(), exitErr.ExitCode(), false, nil
+			return stdoutBuf.Bytes(), stderrBuf.Bytes(), exitErr.ExitCode(), false, trunc, nil
 		}
-		return nil, nil, 0, false, fmt.Errorf("command execution failed: %w", err)
+		return nil, nil, 0, false, false, fmt.Errorf("command execution failed: %w", err)
 	}
-	return stdoutBuf.Bytes(), stderrBuf.Bytes(), 0, false, nil
+	return stdoutBuf.Bytes(), stderrBuf.Bytes(), 0, false, trunc, nil
 }
 
 func commandWithContext(ctx context.Context, parsedCmd *parsedCommand) *exec.Cmd {

@@ -17,6 +17,7 @@ func main() {
 			gwHwd.cmd(),
 			msgHwd.cmd(),
 			onboardHwd.cmd(),
+			updateHwd.cmd(),
 		},
 	}
 

@@ -40,7 +40,6 @@ type (
 
 	CronjobConfig struct {
 		Enabled           *bool  `yaml:"enabled"`
-		Store             string `yaml:"store"`
 		MaxConcurrentRuns int    `yaml:"max_concurrent_runs"`
 		JobTimeoutSec     int    `yaml:"job_timeout_sec"`
 		SessionRetention  string `yaml:"session_retention"`

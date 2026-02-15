@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,8 +18,10 @@ import (
 )
 
 const (
-	defaultProcessLogTail = 4096
-	maxProcessBufferBytes = 1 << 20 // 1 MiB per stream
+	defaultProcessLogTail  = 4096
+	maxProcessBufferBytes  = 1 << 20 // 1 MiB per stream
+	maxActiveProcesses     = 16
+	processRetentionPeriod = 30 * time.Minute
 )
 
 type ProcessTool struct {
@@ -101,12 +102,18 @@ func (t *ProcessTool) Execute(ctx context.Context, args map[string]interface{}) 
 }
 
 func (t *ProcessTool) startProcess(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	t.reapFinished()
+
+	if active := t.countActive(); active >= maxActiveProcesses {
+		return nil, fmt.Errorf("too many active processes (%d/%d), kill some before starting new ones", active, maxActiveProcesses)
+	}
+
 	parsedCmd, err := parseCommandArg(args["command"])
 	if err != nil {
 		return nil, err
 	}
 
-	workingDir := t.resolveWorkingDir(args)
+	workingDir := resolveWorkDir(t.workspace, args)
 	cmd := commandNoContext(parsedCmd)
 	if workingDir != "" {
 		cmd.Dir = workingDir
@@ -240,20 +247,42 @@ func (t *ProcessTool) waitProcess(proc *managedProcess) {
 	proc.hasExitCode = true
 }
 
-func (t *ProcessTool) resolveWorkingDir(args map[string]interface{}) string {
-	workingDir := t.workspace
-	if wd, ok := args["working_dir"].(string); ok && wd != "" {
-		workingDir = wd
-		if !filepath.IsAbs(workingDir) && t.workspace != "" {
-			workingDir = filepath.Join(t.workspace, workingDir)
-		}
-	}
-	return workingDir
-}
-
 func (t *ProcessTool) nextProcessID() string {
 	id := t.seq.Add(1)
 	return fmt.Sprintf("proc-%d", id)
+}
+
+// reapFinished removes process records that finished more than
+// processRetentionPeriod ago to prevent unbounded memory growth.
+func (t *ProcessTool) reapFinished() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	cutoff := time.Now().Add(-processRetentionPeriod)
+	for id, proc := range t.procs {
+		proc.mu.RLock()
+		finished := !proc.running && !proc.endedAt.IsZero() && proc.endedAt.Before(cutoff)
+		proc.mu.RUnlock()
+		if finished {
+			delete(t.procs, id)
+		}
+	}
+}
+
+// countActive returns the number of currently running processes.
+func (t *ProcessTool) countActive() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	n := 0
+	for _, proc := range t.procs {
+		proc.mu.RLock()
+		if proc.running {
+			n++
+		}
+		proc.mu.RUnlock()
+	}
+	return n
 }
 
 func (t *ProcessTool) getProcessByArgs(args map[string]interface{}) (*managedProcess, error) {
@@ -297,6 +326,10 @@ func (p *managedProcess) snapshotStatus() map[string]interface{} {
 	return result
 }
 
+// ---------------------------------------------------------------------------
+// tailBuffer — keeps only the last maxBytes of a stream (for process logs).
+// ---------------------------------------------------------------------------
+
 type tailBuffer struct {
 	mu   sync.RWMutex
 	max  int
@@ -334,4 +367,45 @@ func (b *tailBuffer) Tail(n int) string {
 	out := make([]byte, n)
 	copy(out, b.data[len(b.data)-n:])
 	return string(out)
+}
+
+// ---------------------------------------------------------------------------
+// limitedBuffer — captures up to maxBytes and then discards the rest.
+// Used by ExecTool to prevent unbounded memory growth from large outputs.
+// ---------------------------------------------------------------------------
+
+type limitedBuffer struct {
+	max       int
+	data      []byte
+	truncated bool
+}
+
+func newLimitedBuffer(maxBytes int) *limitedBuffer {
+	return &limitedBuffer{max: maxBytes, data: make([]byte, 0, 4096)}
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if b.truncated {
+		return len(p), nil // discard silently
+	}
+	remaining := b.max - len(b.data)
+	if remaining <= 0 {
+		b.truncated = true
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		b.data = append(b.data, p[:remaining]...)
+		b.truncated = true
+	} else {
+		b.data = append(b.data, p...)
+	}
+	return len(p), nil
+}
+
+func (b *limitedBuffer) String() string {
+	return string(b.data)
+}
+
+func (b *limitedBuffer) Bytes() []byte {
+	return b.data
 }
