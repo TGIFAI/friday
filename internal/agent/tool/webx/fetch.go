@@ -44,7 +44,7 @@ func NewFetchTool() *FetchTool {
 				return nil
 			},
 			Timeout:   fetchTimeout,
-			Transport: &http.Transport{ForceAttemptHTTP2: true},
+			Transport: newCompressedTransport(&http.Transport{ForceAttemptHTTP2: true}),
 		},
 	}
 }

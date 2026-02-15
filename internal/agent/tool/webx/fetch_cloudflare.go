@@ -42,7 +42,10 @@ func getCloudflareRenderer() *cloudflareRenderer {
 		cfRenderer = &cloudflareRenderer{
 			accountID: accountID,
 			apiToken:  apiToken,
-			client:    &http.Client{Timeout: cfTimeout},
+			client: &http.Client{
+				Timeout:   cfTimeout,
+				Transport: newCompressedTransport(nil),
+			},
 		}
 	})
 	return cfRenderer

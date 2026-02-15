@@ -6,6 +6,7 @@ require (
 	codeberg.org/readeck/go-readability/v2 v2.1.1
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
 	github.com/Masterminds/semver/v3 v3.4.0
+	github.com/andybalholm/brotli v1.2.0
 	github.com/bytedance/gg v1.1.0
 	github.com/bytedance/gopkg v0.1.3
 	github.com/bytedance/sonic v1.15.0
@@ -21,6 +22,7 @@ require (
 	github.com/go-telegram/bot v1.18.0
 	github.com/gomarkdown/markdown v0.0.0-20250810172220-2e2c11897d1a
 	github.com/google/uuid v1.6.0
+	github.com/klauspost/compress v1.18.4
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/sirupsen/logrus v1.9.4

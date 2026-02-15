@@ -24,7 +24,10 @@ type braveProvider struct {
 func newBraveProvider(apiKey string) *braveProvider {
 	return &braveProvider{
 		apiKey: apiKey,
-		client: &http.Client{Timeout: braveTimeout},
+		client: &http.Client{
+			Timeout:   braveTimeout,
+			Transport: newCompressedTransport(nil),
+		},
 	}
 }
 
