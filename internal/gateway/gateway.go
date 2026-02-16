@@ -9,18 +9,25 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	hzServer "github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/cloudwego/hertz/pkg/common/utils"
-	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	hzAdaptor "github.com/cloudwego/hertz/pkg/common/adaptor"
+	hzConfig "github.com/cloudwego/hertz/pkg/common/config"
+	"github.com/cloudwego/hertz/pkg/common/hlog"
+	hzUtils "github.com/cloudwego/hertz/pkg/common/utils"
+	hzConsts "github.com/cloudwego/hertz/pkg/protocol/consts"
+	hzProm "github.com/hertz-contrib/monitor-prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/tgifai/friday/internal/agent"
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/channel"
-	httpch "github.com/tgifai/friday/internal/channel/http"
+	httpChannel "github.com/tgifai/friday/internal/channel/http"
 	"github.com/tgifai/friday/internal/channel/lark"
 	"github.com/tgifai/friday/internal/channel/telegram"
 	"github.com/tgifai/friday/internal/config"
+	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/cronjob"
 	"github.com/tgifai/friday/internal/pkg/logs"
+	"github.com/tgifai/friday/internal/pkg/prometheus"
 	pkgutils "github.com/tgifai/friday/internal/pkg/utils"
 	"github.com/tgifai/friday/internal/provider"
 	"github.com/tgifai/friday/internal/provider/anthropic"
@@ -38,7 +45,6 @@ type Gateway struct {
 	security   *SecurityGuard
 	msgQueue   *MessageQueue
 	httpServer *hzServer.Hertz
-	scheduler  *cronjob.Scheduler
 
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -59,12 +65,26 @@ func NewGateway(cfg config.GatewayConfig) *Gateway {
 		timeout = 60 * time.Second
 	}
 
-	hzSvr := hzServer.Default(
+	hlog.SetSystemLogger(logs.NewHlogLogger(logs.DefaultLogger()))
+
+	hzOpts := []hzConfig.Option{
 		hzServer.WithHostPorts(bind),
 		hzServer.WithReadTimeout(timeout),
 		hzServer.WithWriteTimeout(timeout),
-		hzServer.WithExitWaitTime(5*time.Second),
-	)
+		hzServer.WithExitWaitTime(5 * time.Second),
+	}
+	if cfg.EnableMetrics {
+		hzOpts = append(hzOpts,
+			hzServer.WithTracer(
+				hzProm.NewServerTracer(
+					":9091", "/hertz",
+					hzProm.WithDisableServer(true),
+					hzProm.WithRegistry(prometheus.GetRegistry()),
+				),
+			),
+		)
+	}
+	hzSvr := hzServer.Default(hzOpts...)
 
 	commands := newCommandRouter()
 	registerBuiltinCommands(commands)
@@ -105,9 +125,6 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	if err := gw.initChannels(gw.runCtx, cfg.Channels); err != nil {
 		return fmt.Errorf("init channels: %w", err)
 	}
-	if err := gw.initCronjob(gw.runCtx, cfg); err != nil {
-		return fmt.Errorf("init cronjob: %w", err)
-	}
 
 	go gw.httpServer.Spin()
 
@@ -116,10 +133,6 @@ func (gw *Gateway) Start(ctx context.Context) error {
 
 func (gw *Gateway) Stop(ctx context.Context) error {
 	gw.stopOnce.Do(func() {
-		if gw.scheduler != nil {
-			gw.scheduler.Stop(ctx)
-		}
-
 		if gw.runCancel != nil {
 			gw.runCancel()
 		}
@@ -209,13 +222,30 @@ func (gw *Gateway) initChannels(ctx context.Context, channels map[string]config.
 			continue
 		}
 
-		ch, err := newChannel(id, cfg, gw.httpServer)
+		ch, err := newChannel(id, cfg)
 		if err != nil {
 			logs.CtxError(ctx, "[gateway] create channel #%s error: %v", id, err)
 			return fmt.Errorf("create channel %s: %w", id, err)
 		}
 
-		if err = ch.RegisterMessageHandler(gw.enqueueMsg); err != nil {
+		// If the channel declares HTTP routes, register them on the shared server.
+		for _, r := range ch.Routes() {
+			switch strings.ToUpper(r.Method) {
+			case "GET":
+				gw.httpServer.GET(r.Path, r.Handler)
+			case "POST":
+				gw.httpServer.POST(r.Path, r.Handler)
+			case "PUT":
+				gw.httpServer.PUT(r.Path, r.Handler)
+			case "DELETE":
+				gw.httpServer.DELETE(r.Path, r.Handler)
+			default:
+				return fmt.Errorf("unsupported HTTP method %s for route %s", r.Method, r.Path)
+			}
+			logs.CtxInfo(ctx, "[gateway] registered route: %s %s (channel #%s)", r.Method, r.Path, id)
+		}
+
+		if err = ch.RegisterMessageHandler(gw.Enqueue); err != nil {
 			return fmt.Errorf("register handler for channel %s: %w", id, err)
 		}
 
@@ -233,29 +263,34 @@ func (gw *Gateway) initChannels(ctx context.Context, channels map[string]config.
 	return nil
 }
 
-func newChannel(id string, cfg config.ChannelConfig, httpServer *hzServer.Hertz) (channel.Channel, error) {
+func newChannel(id string, cfg config.ChannelConfig) (channel.Channel, error) {
 	switch channel.Type(strings.ToLower(strings.TrimSpace(cfg.Type))) {
 	case channel.Telegram:
 		return telegram.NewChannel(id, &cfg)
 	case channel.Lark:
-		return lark.NewChannel(id, &cfg, httpServer)
+		return lark.NewChannel(id, &cfg)
 	case channel.HTTP:
-		return httpch.NewChannel(id, &cfg, httpServer)
+		return httpChannel.NewChannel(id, &cfg)
 	default:
 		return nil, fmt.Errorf("unsupported channel type: %s", cfg.Type)
 	}
 }
 
 func (gw *Gateway) initHTTPServer(ctx context.Context, gateway config.GatewayConfig) error {
-
 	gw.httpServer.GET("/health", func(ctx context.Context, c *app.RequestContext) {
-		c.JSON(consts.StatusOK, utils.H{"status": "ok"})
+		c.JSON(hzConsts.StatusOK, hzUtils.H{"status": "ok"})
 	})
+	gw.httpServer.GET("/metrics", hzAdaptor.HertzHandler(
+		promhttp.HandlerFor(prometheus.GetRegistry(), promhttp.HandlerOpts{ErrorHandling: promhttp.ContinueOnError}),
+	))
 	return nil
 
 }
 
-func (gw *Gateway) enqueueMsg(ctx context.Context, msg *channel.Message) error {
+// Enqueue submits a message into the gateway's processing pipeline. It
+// resolves the session key (if absent) and drops the message into the
+// per-session lane.
+func (gw *Gateway) Enqueue(ctx context.Context, msg *channel.Message) error {
 	if msg == nil {
 		return fmt.Errorf("message cannot be nil")
 	}
@@ -275,8 +310,16 @@ func (gw *Gateway) processMessage(ctx context.Context, msg *channel.Message) err
 		return fmt.Errorf("message cannot be nil")
 	}
 
+	// Inject LogID and message metadata into context for tracing.
+	ctx = logs.SetLogID(ctx, logs.NewLogID())
+	ctx = context.WithValue(ctx, consts.CtxKeyChannelID, msg.ChannelID)
+	ctx = context.WithValue(ctx, consts.CtxKeyChatID, msg.ChatID)
+
 	// --- cron job messages ---
 	if msg.ChannelType == channel.Type("cron") {
+		if agentID := msg.Metadata["agent_id"]; agentID != "" {
+			ctx = context.WithValue(ctx, consts.CtxKeyAgentID, agentID)
+		}
 		return gw.processCronMessage(ctx, msg)
 	}
 
@@ -321,6 +364,7 @@ func (gw *Gateway) processMessage(ctx context.Context, msg *channel.Message) err
 	if err != nil {
 		return err
 	}
+	ctx = context.WithValue(ctx, consts.CtxKeyAgentID, ag.ID())
 
 	stopTyping := gw.keepTyping(ctx, ch, msg.ChatID)
 	resp, err := ag.ProcessMessage(ctx, msg)
@@ -410,25 +454,6 @@ func (gw *Gateway) getAgentByChannel(channelID string) (*agent.Agent, error) {
 		return nil, fmt.Errorf("agent %s not found in registry", agentID)
 	}
 	return val.(*agent.Agent), nil
-}
-
-func (gw *Gateway) initCronjob(ctx context.Context, cfg *config.Config) error {
-	if cfg.Cronjob.Enabled != nil && !*cfg.Cronjob.Enabled {
-		logs.CtxInfo(ctx, "[gateway] cronjob disabled, skipping")
-		return nil
-	}
-
-	gw.scheduler = cronjob.NewScheduler(cfg.Cronjob, gw.enqueueMsg)
-
-	// Register a built-in heartbeat job for every agent.
-	for id, agCfg := range cfg.Agents {
-		hbJob := cronjob.NewHeartbeatJob(id, agCfg.Workspace, 0)
-		if err := gw.scheduler.AddJob(hbJob, false); err != nil {
-			logs.CtxWarn(ctx, "[gateway] register heartbeat for agent %s: %v", id, err)
-		}
-	}
-
-	return gw.scheduler.Start(ctx)
 }
 
 func (gw *Gateway) keepTyping(ctx context.Context, ch channel.Channel, chatID string) (stop func()) {

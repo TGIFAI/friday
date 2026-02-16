@@ -10,6 +10,7 @@ import (
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/agent/skill"
 	"github.com/tgifai/friday/internal/agent/tool"
+	"github.com/tgifai/friday/internal/agent/tool/cronx"
 	"github.com/tgifai/friday/internal/agent/tool/filex"
 	"github.com/tgifai/friday/internal/agent/tool/msgx"
 	"github.com/tgifai/friday/internal/agent/tool/qmdx"
@@ -92,6 +93,9 @@ func (ag *Agent) Init(_ context.Context) error {
 	// web tools
 	_ = ag.tools.Register(webx.NewFetchTool())
 	_ = ag.tools.Register(webx.NewSearchTool())
+
+	// cron tools
+	_ = ag.tools.Register(cronx.NewCronTool())
 
 	return nil
 }
@@ -186,14 +190,17 @@ func buildUserMessage(msg *channel.Message) *schema.Message {
 				},
 			})
 		case channel.AttachmentVoice:
+			// Most LLM providers (Anthropic, Volcengine, etc.) do not support
+			// audio_url content parts. Instead of sending an unsupported type
+			// that would cause the entire request to fail, we add a text note
+			// indicating an audio message was received.
+			name := att.FileName
+			if name == "" {
+				name = "audio"
+			}
 			parts = append(parts, schema.MessageInputPart{
-				Type: schema.ChatMessagePartTypeAudioURL,
-				Audio: &schema.MessageInputAudio{
-					MessagePartCommon: schema.MessagePartCommon{
-						Base64Data: &b64,
-						MIMEType:   att.MIMEType,
-					},
-				},
+				Type: schema.ChatMessagePartTypeText,
+				Text: fmt.Sprintf("[Audio attachment received: %s (%s), but audio input is not supported by the current model]", name, att.MIMEType),
 			})
 		}
 	}

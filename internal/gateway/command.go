@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/tgifai/friday/internal/channel"
+	"github.com/tgifai/friday/internal/cronjob"
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
@@ -129,8 +130,8 @@ func cmdStatus(ctx context.Context, gw *Gateway, msg *channel.Message) (string, 
 	fmt.Fprintf(&b, "Channel: %s (%s)\n", msg.ChannelID, msg.ChannelType)
 	fmt.Fprintf(&b, "Chat: %s\n", msg.ChatID)
 
-	if gw.scheduler != nil {
-		jobs := gw.scheduler.ListJobs()
+	if s := cronjob.Default(); s != nil {
+		jobs := s.ListJobs()
 		fmt.Fprintf(&b, "Scheduled jobs: %d\n", len(jobs))
 	}
 

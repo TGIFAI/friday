@@ -2,7 +2,17 @@ package channel
 
 import (
 	"context"
+
+	"github.com/cloudwego/hertz/pkg/app"
 )
+
+// Route describes an HTTP route that a channel needs registered on the
+// shared gateway server.
+type Route struct {
+	Method  string // "GET", "POST"
+	Path    string // e.g. "/webhook/v1/lark/main/event"
+	Handler app.HandlerFunc
+}
 
 // Channel defines a runtime adapter between Friday and a chat platform.
 // Implementations are responsible for receiving inbound events and sending
@@ -38,4 +48,7 @@ type Channel interface {
 	// RegisterMessageHandler registers the inbound message callback.
 	// The handler is invoked for each incoming normalized Message.
 	RegisterMessageHandler(handler func(ctx context.Context, msg *Message) error) error
+
+	// Routes declare HTTP routes. The gateway registers these routes after construction. (optional)
+	Routes() []Route
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/go-telegram/bot"
@@ -31,13 +32,16 @@ var (
 )
 
 type Telegram struct {
-	id      string
-	config  Config
-	bot     *bot.Bot
-	handler func(ctx context.Context, msg *channel.Message) error
-	mu      sync.RWMutex
-	ctx     context.Context
-	cancel  context.CancelFunc
+	id          string
+	config      Config
+	bot         *bot.Bot
+	botUsername string // lowercase bot username for mention matching
+	botUserID   int64  // bot user ID for text_mention matching
+	handler     func(ctx context.Context, msg *channel.Message) error
+	mediaGroups *mediaGroupAggregator
+	mu          sync.RWMutex
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, error) {
@@ -54,6 +58,7 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, er
 		ctx:    ctx,
 		cancel: cancel,
 	}
+	tg.mediaGroups = newMediaGroupAggregator(tg.flushMediaGroup)
 
 	opts := []bot.Option{
 		bot.WithDefaultHandler(tg.handleUpdate),
@@ -66,6 +71,16 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, er
 	}
 	tg.bot = tgBot
 
+	// Fetch bot identity for mention matching in group chats.
+	me, err := tgBot.GetMe(ctx)
+	if err != nil {
+		logs.Warn("[channel:telegram] GetMe failed, group mention filtering disabled: %v", err)
+	} else {
+		tg.botUsername = strings.ToLower(me.Username)
+		tg.botUserID = me.ID
+		logs.Info("[channel:telegram] bot identity: @%s (id=%d)", me.Username, me.ID)
+	}
+
 	return tg, nil
 }
 
@@ -75,6 +90,12 @@ func (c *Telegram) ID() string {
 
 func (c *Telegram) Type() channel.Type {
 	return channel.Telegram
+}
+
+func (c *Telegram) Routes() []channel.Route {
+	return []channel.Route{
+		//{Method: "POST", Path: l.webhookPath, Handler: l.eventHandler},
+	}
 }
 
 func (c *Telegram) Start(ctx context.Context) error {
@@ -224,10 +245,55 @@ func (c *Telegram) handleUpdate(ctx context.Context, b *bot.Bot, update *models.
 		return
 	}
 
+	// Compute mention status once (used by both group filter and media group).
+	mentioned := c.isBotMentioned(msg.Text, msg.Entities) ||
+		c.isBotMentioned(msg.Caption, msg.CaptionEntities)
+
+	// In group/supergroup chats, only process messages that mention the bot.
+	if c.botUsername != "" && isGroupChat(msg.Chat.Type) && !mentioned {
+		// For media groups, a later update in the same group might carry the
+		// caption with the @mention. We cannot know yet, so we must still
+		// check if this belongs to an existing pending group.
+		if msg.MediaGroupID != "" {
+			// If there's already a pending group that was marked as mentioned,
+			// we should still accept this photo.
+			c.mediaGroups.mu.Lock()
+			pg, exists := c.mediaGroups.groups[msg.MediaGroupID]
+			alreadyMentioned := exists && pg.mentioned
+			c.mediaGroups.mu.Unlock()
+			if !alreadyMentioned {
+				// Buffer it anyway — the caption (with @mention) might arrive
+				// in a later update within this media group.
+				c.mediaGroups.add(msg, false)
+				return
+			}
+			// Fall through to add it to the existing mentioned group.
+		} else {
+			return
+		}
+	}
+
+	// Media group: aggregate multiple photo updates into one message.
+	if msg.MediaGroupID != "" {
+		c.mediaGroups.add(msg, mentioned)
+		return
+	}
+
+	// --- single message path ---
+	c.processSingleUpdate(ctx, b, msg)
+}
+
+// processSingleUpdate handles a non-media-group update.
+func (c *Telegram) processSingleUpdate(ctx context.Context, b *bot.Bot, msg *models.Message) {
 	// Determine textual content: prefer Text, fall back to Caption.
 	content := msg.Text
 	if content == "" {
 		content = msg.Caption
+	}
+
+	// Strip bot @mention from content so the agent sees clean text.
+	if c.botUsername != "" && isGroupChat(msg.Chat.Type) {
+		content = c.stripBotMention(content)
 	}
 
 	// Extract attachments from media fields.
@@ -265,29 +331,129 @@ func (c *Telegram) handleUpdate(ctx context.Context, b *bot.Bot, update *models.
 		return
 	}
 
+	channelMsg := c.buildChannelMessage(msg, content, attachments)
+	c.dispatchMessage(ctx, b, msg.Chat.ID, channelMsg)
+}
+
+// flushMediaGroup is called by the aggregator after the debounce window.
+// It downloads all buffered photos and dispatches a single merged message.
+func (c *Telegram) flushMediaGroup(pg *pendingMediaGroup) {
+	ctx := c.ctx
+
+	// In group chats, drop the entire group if no update had an @mention.
+	if c.botUsername != "" && isGroupChat(pg.chat.Type) && !pg.mentioned {
+		logs.CtxDebug(ctx, "[channel:telegram] media group dropped: no bot mention")
+		return
+	}
+
+	content := pg.caption
+	if c.botUsername != "" && isGroupChat(pg.chat.Type) {
+		content = c.stripBotMention(content)
+	}
+
+	// Download all photos concurrently.
+	type photoResult struct {
+		idx int
+		att *channel.Attachment
+	}
+	results := make(chan photoResult, len(pg.photos))
+	var wg sync.WaitGroup
+	for i, photo := range pg.photos {
+		if int64(photo.FileSize) > maxImageSize {
+			logs.CtxDebug(ctx, "[channel:telegram] media group photo too large (%d bytes), skipping", photo.FileSize)
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, fileID string) {
+			defer wg.Done()
+			data, err := c.downloadFile(ctx, fileID)
+			if err != nil {
+				logs.CtxWarn(ctx, "[channel:telegram] media group download photo: %v", err)
+				return
+			}
+			results <- photoResult{idx: idx, att: &channel.Attachment{
+				Type:     channel.AttachmentImage,
+				Data:     data,
+				MIMEType: "image/jpeg",
+			}}
+		}(i, photo.FileID)
+	}
+	wg.Wait()
+	close(results)
+
+	// Collect results and sort by original order.
+	collected := make([]photoResult, 0, len(pg.photos))
+	for r := range results {
+		collected = append(collected, r)
+	}
+	// Sort by index to preserve the order photos were received.
+	for i := 0; i < len(collected); i++ {
+		for j := i + 1; j < len(collected); j++ {
+			if collected[j].idx < collected[i].idx {
+				collected[i], collected[j] = collected[j], collected[i]
+			}
+		}
+	}
+	attachments := make([]channel.Attachment, 0, len(collected))
+	for _, r := range collected {
+		attachments = append(attachments, *r.att)
+	}
+
+	if content == "" && len(attachments) == 0 {
+		return
+	}
+
+	// Build a synthetic models.Message for buildChannelMessage.
+	syntheticMsg := &models.Message{
+		ID:   pg.firstMessageID,
+		Chat: pg.chat,
+		From: pg.from,
+	}
+
+	channelMsg := c.buildChannelMessage(syntheticMsg, content, attachments)
+	channelMsg.Metadata["media_group"] = "true"
+
+	logs.CtxInfo(ctx, "[channel:telegram] media group flushed: %d photos, caption=%q",
+		len(attachments), content)
+
+	c.dispatchMessage(ctx, nil, pg.chat.ID, channelMsg)
+}
+
+// buildChannelMessage constructs a channel.Message from a Telegram message.
+func (c *Telegram) buildChannelMessage(msg *models.Message, content string, attachments []channel.Attachment) *channel.Message {
 	messageID := strconv.Itoa(msg.ID)
 	metadata := map[string]string{
 		"message_id": messageID,
 		"chat_type":  string(msg.Chat.Type),
-		"username":   msg.From.Username,
-		"first_name": msg.From.FirstName,
-		"last_name":  msg.From.LastName,
+	}
+	if msg.From != nil {
+		metadata["username"] = msg.From.Username
+		metadata["first_name"] = msg.From.FirstName
+		metadata["last_name"] = msg.From.LastName
 	}
 	if msg.ForwardOrigin != nil {
 		metadata["forwarded"] = "true"
 	}
 
-	channelMsg := &channel.Message{
+	userID := ""
+	if msg.From != nil {
+		userID = strconv.FormatInt(msg.From.ID, 10)
+	}
+
+	return &channel.Message{
 		ID:          messageID,
 		ChannelID:   c.id,
 		ChannelType: channel.Telegram,
-		UserID:      strconv.FormatInt(msg.From.ID, 10),
+		UserID:      userID,
 		ChatID:      strconv.FormatInt(msg.Chat.ID, 10),
 		Content:     content,
 		Metadata:    metadata,
 		Attachments: attachments,
 	}
+}
 
+// dispatchMessage sends the message to the registered handler.
+func (c *Telegram) dispatchMessage(ctx context.Context, b *bot.Bot, chatID int64, channelMsg *channel.Message) {
 	c.mu.RLock()
 	handler := c.handler
 	c.mu.RUnlock()
@@ -295,11 +461,13 @@ func (c *Telegram) handleUpdate(ctx context.Context, b *bot.Bot, update *models.
 	if handler != nil {
 		if err := handler(ctx, channelMsg); err != nil {
 			logs.CtxError(ctx, "[channel:telegram] error handling message: %v", err)
-			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID:    msg.Chat.ID,
-				Text:      "Sorry, an error occurred while processing your message.",
-				ParseMode: parseMode,
-			})
+			if b != nil {
+				_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+					ChatID:    chatID,
+					Text:      "Sorry, an error occurred while processing your message.",
+					ParseMode: parseMode,
+				})
+			}
 		}
 	}
 }
@@ -392,6 +560,50 @@ func (c *Telegram) downloadFile(ctx context.Context, fileID string) ([]byte, err
 		return nil, fmt.Errorf("read file body: %w", err)
 	}
 	return data, nil
+}
+
+// isGroupChat returns true for group and supergroup chat types.
+func isGroupChat(chatType models.ChatType) bool {
+	return chatType == models.ChatTypeGroup || chatType == models.ChatTypeSupergroup
+}
+
+// isBotMentioned checks whether entities contain a mention of this bot.
+func (c *Telegram) isBotMentioned(text string, entities []models.MessageEntity) bool {
+	for _, e := range entities {
+		switch e.Type {
+		case models.MessageEntityTypeMention:
+			// Extract @username from the text using offset/length (byte-safe via runes).
+			runes := []rune(text)
+			if e.Offset >= 0 && e.Offset+e.Length <= len(runes) {
+				mentioned := strings.ToLower(string(runes[e.Offset : e.Offset+e.Length]))
+				if mentioned == "@"+c.botUsername {
+					return true
+				}
+			}
+		case models.MessageEntityTypeTextMention:
+			// text_mention has a User object directly.
+			if e.User != nil && e.User.ID == c.botUserID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// stripBotMention removes @botUsername from content and trims whitespace.
+func (c *Telegram) stripBotMention(content string) string {
+	// Case-insensitive replacement of @botUsername.
+	lower := strings.ToLower(content)
+	mention := "@" + c.botUsername
+	for {
+		idx := strings.Index(lower, mention)
+		if idx < 0 {
+			break
+		}
+		content = content[:idx] + content[idx+len(mention):]
+		lower = lower[:idx] + lower[idx+len(mention):]
+	}
+	return strings.TrimSpace(content)
 }
 
 func toTelegramChatAction(action channel.ChatAction) (models.ChatAction, error) {

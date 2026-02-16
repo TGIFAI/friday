@@ -2,6 +2,8 @@ package logs
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -9,16 +11,14 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/fatih/color"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
+
+	"github.com/tgifai/friday/internal/consts"
 )
-
-type ctxKey string
-
-const ctxKeyLogID ctxKey = "log_id"
 
 type Options struct {
 	Level      string
@@ -120,15 +120,20 @@ type defaultLogger struct {
 	log *logrus.Logger
 }
 
+// NewLogID generates a LogID in the format: YYYYMMDDHHmmss + 20 random hex
+// chars (total 34 chars), e.g. "202602152309301576D6034B76BD072A10".
 func (l *defaultLogger) NewLogID() string {
-	return uuid.New().String()
+	ts := time.Now().Format("20060102150405")
+	b := make([]byte, 10)
+	_, _ = rand.Read(b)
+	return ts + strings.ToUpper(hex.EncodeToString(b))
 }
 
 func (l *defaultLogger) GetLogID(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	logID, _ := ctx.Value(ctxKeyLogID).(string)
+	logID, _ := ctx.Value(consts.CtxKeyLogID).(string)
 	return logID
 }
 
@@ -136,7 +141,7 @@ func (l *defaultLogger) SetLogID(ctx context.Context, logID string) context.Cont
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return context.WithValue(ctx, ctxKeyLogID, logID)
+	return context.WithValue(ctx, consts.CtxKeyLogID, logID)
 }
 
 func newDefaultLogger() Logger {
@@ -351,10 +356,9 @@ func (f *customFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		file = shortFilePath(file)
 	}
 
-	var logID any
-	logID = ""
+	logID := "-"
 	if entry.Context != nil {
-		if id := entry.Context.Value(ctxKeyLogID); id != nil {
+		if id, _ := entry.Context.Value(consts.CtxKeyLogID).(string); id != "" {
 			logID = id
 		}
 	}

@@ -8,9 +8,10 @@ This file documents the tools currently registered by the Agent and how to call 
 2. Prefer `edit` for minimal changes; use `write` for full overwrite.
 3. Use `exec` for short synchronous commands.
 4. Use `process` for long-running background jobs.
-5. Use `web_search` + `web_fetch` for web research; use `render_js` only when direct fetch fails on JS-heavy pages.
-6. Use exact parameter names when possible.
-7. Paths can be relative to workspace or absolute. Out-of-scope paths fail with `path not allowed`.
+5. Use `cronx` to schedule recurring or one-shot tasks; prefer `schedule_type=every` for simple intervals.
+6. Use `web_search` + `web_fetch` for web research; use `render_js` only when direct fetch fails on JS-heavy pages.
+7. Use exact parameter names when possible.
+8. Paths can be relative to workspace or absolute. Out-of-scope paths fail with `path not allowed`.
 
 ## Tool Index
 
@@ -25,6 +26,7 @@ This file documents the tools currently registered by the Agent and how to call 
 - `message`: send message to a channel/chat
 - `knowledge_search`: search local knowledge base (requires `qmd`)
 - `knowledge_get`: retrieve full document from knowledge base (requires `qmd`)
+- `cronx`: manage scheduled cron jobs (`create/list/delete/update`)
 - `web_fetch`: fetch a URL and extract content as markdown
 - `web_search`: search the web via Brave Search API (requires `BRAVE_API_KEY`)
 
@@ -303,7 +305,82 @@ Example:
 
 ---
 
-## 10) `knowledge_search`
+## 10) `cronx`
+
+Purpose: manage scheduled cron jobs — create periodic or one-shot tasks, list existing jobs, delete or update them.
+
+Common parameter:
+- `action` (required): `create|list|delete|update`
+
+### `action=create`
+Parameters:
+- `name` (string, required) - human-readable job name
+- `schedule_type` (string, required) - `every` (interval like `"5m"`), `cron` (5-field cron expression), or `at` (ISO 8601 one-shot timestamp)
+- `schedule` (string, required) - schedule value matching `schedule_type`
+- `prompt` (string, required) - message/instruction sent to the agent when the job fires
+- `session_target` (string, optional) - `main` (shared conversation) or `isolated` (dedicated session, default)
+- `channel_id` (string, optional) - delivery channel for isolated jobs (defaults to current channel)
+- `chat_id` (string, optional) - delivery chat for isolated jobs (defaults to current chat)
+- `enabled` (bool, optional) - defaults to `true`
+
+Response:
+- `success`, `job_id`, `name`, `schedule_type`, `schedule`, `next_run`
+
+### `action=list`
+Parameters: none
+
+Response:
+- array of job snapshots with `job_id`, `name`, `schedule_type`, `schedule`, `enabled`, `next_run`, `prompt` (truncated at 120 chars)
+
+### `action=delete`
+Parameters:
+- `job_id` (string, required)
+
+Response:
+- `success`, `job_id`
+
+Notes:
+- The built-in heartbeat job cannot be deleted.
+
+### `action=update`
+Parameters:
+- `job_id` (string, required)
+- any of: `name`, `schedule_type`, `schedule`, `prompt`, `enabled`, `session_target`, `channel_id`, `chat_id`
+
+Response:
+- `success`, `job_id`, plus updated fields
+
+Notes:
+- The built-in heartbeat job cannot be updated.
+
+Examples:
+```json
+{"action":"create","name":"daily digest","schedule_type":"cron","schedule":"0 9 * * *","prompt":"Summarize yesterday's activity"}
+```
+
+```json
+{"action":"create","name":"remind me","schedule_type":"at","schedule":"2025-06-01T14:00:00Z","prompt":"Time for the meeting!"}
+```
+
+```json
+{"action":"create","name":"health check","schedule_type":"every","schedule":"5m","prompt":"Check service status"}
+```
+
+```json
+{"action":"list"}
+```
+
+```json
+{"action":"delete","job_id":"cronx-daily-digest-1717200000"}
+```
+
+```json
+{"action":"update","job_id":"cronx-health-check-1717200000","enabled":false}
+```
+
+---
+
+## 11) `knowledge_search`
 
 Purpose: search the local knowledge base (markdown docs, notes, meeting transcripts) using hybrid BM25 + vector semantic search. Returns relevant snippets instead of full documents to save tokens.
 
@@ -333,7 +410,7 @@ Example:
 
 ---
 
-## 11) `knowledge_get`
+## 12) `knowledge_get`
 
 Purpose: retrieve a specific document from the local knowledge base by file path or document ID. Use `knowledge_search` first to find relevant documents, then use this tool only when you need the full content.
 
@@ -363,7 +440,7 @@ Example:
 
 ---
 
-## 12) `web_fetch`
+## 13) `web_fetch`
 
 Purpose: fetch a URL and extract its main content as clean markdown. Handles HTML pages (via readability extraction), JSON endpoints, and optionally JS-heavy pages via Cloudflare Browser Rendering.
 
@@ -413,7 +490,7 @@ Examples:
 
 ---
 
-## 13) `web_search`
+## 14) `web_search`
 
 Purpose: search the web using Brave Search API. Returns titles, URLs, and snippets for the top results.
 
@@ -468,6 +545,11 @@ Examples:
 1. `knowledge_search` to find relevant docs/notes
 2. `knowledge_get` only when you need the full content of a specific result
 3. Incorporate retrieved knowledge into your response or code changes
+
+### Scheduling a recurring task
+1. `cronx` with `action=create` to set up the job
+2. `cronx` with `action=list` to verify it was registered
+3. `cronx` with `action=update` to adjust schedule or disable later
 
 ### Web research task
 1. `web_search` to find relevant pages

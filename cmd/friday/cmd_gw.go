@@ -9,8 +9,10 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/tgifai/friday"
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/consts"
+	"github.com/tgifai/friday/internal/cronjob"
 	"github.com/tgifai/friday/internal/gateway"
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/pkg/updater"
@@ -64,9 +66,16 @@ func (r *GatewayRunner) run(ctx context.Context, _ *cli.Command) error {
 		return fmt.Errorf("start gateway: %w", err)
 	}
 
+	// --- cronjob scheduler ---
+	if err = r.initCronjob(ctx, cfg, gw); err != nil {
+		cancel()
+		_ = gw.Stop(context.Background())
+		return fmt.Errorf("init cronjob: %w", err)
+	}
+
 	logs.CtxInfo(ctx, "ALL IS WELL!!! Press Ctrl+C to stop.")
 
-	if cfg.Gateway.AutoUpdate {
+	if friday.VERSION != "n/a" && cfg.Gateway.AutoUpdate {
 		logs.CtxInfo(ctx, "auto-update enabled, starting background checker...")
 		go updater.StartAutoUpdate(ctx, updater.New(), 0)
 	}
@@ -82,12 +91,33 @@ func (r *GatewayRunner) run(ctx context.Context, _ *cli.Command) error {
 		logs.CtxInfo(ctx, "Context canceled. Stopping runtime...")
 	}
 
+	cronjob.Stop(context.Background())
+
 	if err = gw.Stop(context.Background()); err != nil {
 		logs.CtxError(ctx, "stop gateway error: %v", err)
 	}
 
 	logs.CtxInfo(ctx, "all stopped, good bye!")
 	return nil
+}
+
+func (r *GatewayRunner) initCronjob(ctx context.Context, cfg *config.Config, gw *gateway.Gateway) error {
+	if cfg.Cronjob.Enabled != nil && !*cfg.Cronjob.Enabled {
+		logs.CtxInfo(ctx, "[cronjob] disabled, skipping")
+		return nil
+	}
+
+	cronjob.Init(cfg.Cronjob, gw.Enqueue)
+
+	s := cronjob.Default()
+	for id, agCfg := range cfg.Agents {
+		hbJob := cronjob.NewHeartbeatJob(id, agCfg.Workspace, 0)
+		if err := s.AddJob(hbJob, false); err != nil {
+			logs.CtxWarn(ctx, "[cronjob] register heartbeat for agent %s: %v", id, err)
+		}
+	}
+
+	return cronjob.Start(ctx)
 }
 
 func (r *GatewayRunner) initLogger(cfg config.LoggingConfig) error {
@@ -100,6 +130,4 @@ func (r *GatewayRunner) initLogger(cfg config.LoggingConfig) error {
 		MaxBackups: cfg.MaxBackups,
 		MaxAge:     cfg.MaxAge,
 	})
-
 }
-

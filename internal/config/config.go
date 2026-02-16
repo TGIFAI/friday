@@ -25,6 +25,7 @@ type (
 		Bind                  string `yaml:"bind"`
 		MaxConcurrentSessions int    `yaml:"max_concurrent_sessions"`
 		RequestTimeout        int    `yaml:"request_timeout"`
+		EnableMetrics         bool   `yaml:"enable_metrics"`
 		AutoUpdate            bool   `yaml:"auto_update"`
 	}
 

@@ -10,7 +10,6 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/hertz/pkg/app"
-	hzServer "github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/google/uuid"
 
@@ -32,11 +31,11 @@ var _ channel.Channel = (*HTTP)(nil)
 
 // inboundRequest is the JSON body expected on the message endpoint.
 type inboundRequest struct {
-	UserID      string               `json:"user_id"`
-	ChatID      string               `json:"chat_id"`
-	Content     string               `json:"content"`
-	Attachments []inboundAttachment  `json:"attachments,omitempty"`
-	Metadata    map[string]string    `json:"metadata,omitempty"`
+	UserID      string              `json:"user_id"`
+	ChatID      string              `json:"chat_id"`
+	Content     string              `json:"content"`
+	Attachments []inboundAttachment `json:"attachments,omitempty"`
+	Metadata    map[string]string   `json:"metadata,omitempty"`
 }
 
 type inboundAttachment struct {
@@ -68,31 +67,35 @@ type HTTP struct {
 
 	// pending maps a request-scoped chatID to its reply channel.
 	// The gateway calls SendMessage with this chatID to deliver the response.
-	pendingMu sync.Mutex
-	pending   map[string]*pendingReply
+	pendingMu   sync.Mutex
+	pending     map[string]*pendingReply
+	messagePath string
 }
 
-func NewChannel(chanId string, chCfg *config.ChannelConfig, httpServer *hzServer.Hertz) (channel.Channel, error) {
+func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, error) {
 	cfg, err := ParseConfig(chCfg.Config)
 	if err != nil {
 		return nil, fmt.Errorf("parse http config: %w", err)
 	}
 
 	h := &HTTP{
-		id:      chanId,
-		config:  *cfg,
-		pending: make(map[string]*pendingReply),
+		id:          chanId,
+		config:      *cfg,
+		pending:     make(map[string]*pendingReply),
+		messagePath: fmt.Sprintf("/api/v1/http/%s/message", chanId),
 	}
-
-	// Register API routes on the shared HTTP server.
-	path := fmt.Sprintf("/api/v1/http/%s/message", chanId)
-	httpServer.POST(path, h.handleMessage)
-	logs.Info("[channel:http] registered route: POST %s", path)
 
 	return h, nil
 }
 
-func (h *HTTP) ID() string     { return h.id }
+// Routes implements channel.RouteProvider.
+func (h *HTTP) Routes() []channel.Route {
+	return []channel.Route{
+		{Method: "POST", Path: h.messagePath, Handler: h.handleMessage},
+	}
+}
+
+func (h *HTTP) ID() string         { return h.id }
 func (h *HTTP) Type() channel.Type { return channel.HTTP }
 
 func (h *HTTP) Start(ctx context.Context) error {

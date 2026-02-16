@@ -134,6 +134,12 @@ func (s *Scheduler) RemoveJob(jobID string) error {
 	return s.store.Save()
 }
 
+// UpdateJob updates an existing job and persists the change.
+func (s *Scheduler) UpdateJob(job Job) error {
+	s.store.Update(job)
+	return s.store.Save()
+}
+
 // ListJobs returns all registered jobs.
 func (s *Scheduler) ListJobs() []Job {
 	return s.store.List()

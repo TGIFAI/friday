@@ -1,6 +1,8 @@
 package logs
 
-import "context"
+import (
+	"context"
+)
 
 type LogIDProvider interface {
 	GetLogID(ctx context.Context) string

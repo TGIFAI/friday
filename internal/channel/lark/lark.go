@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/hertz/pkg/app"
-	hzServer "github.com/cloudwego/hertz/pkg/app/server"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkevent "github.com/larksuite/oapi-sdk-go/v3/event"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/config"
@@ -31,14 +32,21 @@ const (
 var _ channel.Channel = (*Lark)(nil)
 
 type Lark struct {
-	id      string
-	config  Config
-	client  *lark.Client
-	handler func(ctx context.Context, msg *channel.Message) error
-	mu      sync.RWMutex
+	id           string
+	config       Config
+	client       *lark.Client
+	handler      func(ctx context.Context, msg *channel.Message) error
+	mu           sync.RWMutex
+
+	// webhook mode
+	eventHandler app.HandlerFunc // nil in ws mode
+	webhookPath  string          // empty in ws mode
+
+	// ws mode
+	wsClient *larkws.Client // nil in webhook mode
 }
 
-func NewChannel(chanId string, chCfg *config.ChannelConfig, httpServer *hzServer.Hertz) (channel.Channel, error) {
+func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, error) {
 	cfg, err := ParseConfig(chCfg.Config)
 	if err != nil {
 		return nil, fmt.Errorf("parse lark config: %w", err)
@@ -52,15 +60,31 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig, httpServer *hzServer
 		client: client,
 	}
 
-	// Register webhook route on the shared HTTP server.
+	// Both modes share the same event dispatcher and message handler.
 	eventDispatcher := dispatcher.NewEventDispatcher(cfg.VerificationToken, cfg.EncryptKey)
 	eventDispatcher.OnP2MessageReceiveV1(l.onMessageReceive)
 
-	path := fmt.Sprintf("/webhook/v1/lark/%s/event", chanId)
-	httpServer.POST(path, l.newEventHandler(eventDispatcher))
-	logs.Info("[channel:lark] registered webhook route: POST %s", path)
+	switch cfg.Mode {
+	case "ws":
+		l.wsClient = larkws.NewClient(cfg.AppID, cfg.AppSecret,
+			larkws.WithEventHandler(eventDispatcher),
+		)
+	default: // "webhook"
+		l.webhookPath = fmt.Sprintf("/api/v1/lark/%s/event", chanId)
+		l.eventHandler = l.newEventHandler(eventDispatcher)
+	}
 
 	return l, nil
+}
+
+// Routes implements channel.RouteProvider.
+func (l *Lark) Routes() []channel.Route {
+	if l.wsClient != nil {
+		return nil
+	}
+	return []channel.Route{
+		{Method: "POST", Path: l.webhookPath, Handler: l.eventHandler},
+	}
 }
 
 func (l *Lark) ID() string {
@@ -71,9 +95,21 @@ func (l *Lark) Type() channel.Type {
 	return channel.Lark
 }
 
-// Start blocks until the context is canceled. The webhook route is already
-// registered in NewChannel, so there is no polling loop to run.
+// Start blocks until the context is canceled. In webhook mode the route is
+// already registered so we just wait. In ws mode we start the WebSocket client.
 func (l *Lark) Start(ctx context.Context) error {
+	if l.wsClient != nil {
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- l.wsClient.Start(ctx)
+		}()
+		select {
+		case err := <-errCh:
+			return err
+		case <-ctx.Done():
+			return nil
+		}
+	}
 	<-ctx.Done()
 	return nil
 }
@@ -110,8 +146,21 @@ func (l *Lark) SendChatAction(_ context.Context, _ string, _ channel.ChatAction)
 	return channel.ErrUnsupportedOperation
 }
 
-func (l *Lark) ReactMessage(_ context.Context, _ string, _ string, _ string) error {
-	return channel.ErrUnsupportedOperation
+func (l *Lark) ReactMessage(ctx context.Context, _ string, messageID string, reaction string) error {
+	resp, err := l.client.Im.MessageReaction.Create(ctx,
+		larkim.NewCreateMessageReactionReqBuilder().
+			MessageId(messageID).
+			Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+				ReactionType(larkim.NewEmojiBuilder().EmojiType(reaction).Build()).
+				Build()).
+			Build())
+	if err != nil {
+		return fmt.Errorf("lark react message: %w", err)
+	}
+	if !resp.Success() {
+		return fmt.Errorf("lark react message failed: code=%d msg=%s", resp.Code, resp.Msg)
+	}
+	return nil
 }
 
 func (l *Lark) RegisterMessageHandler(handler func(ctx context.Context, msg *channel.Message) error) error {
@@ -147,7 +196,8 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 			logs.CtxWarn(ctx, "[channel:lark] failed to extract text: %v", err)
 			return nil
 		}
-		content = text
+		// Strip @mention placeholders (e.g. @_user_1) from group messages.
+		content = stripMentionPlaceholders(text, msg.Mentions)
 
 	case "image":
 		imageKey, err := extractKey(msg.Content, "image_key")
@@ -300,6 +350,19 @@ func (l *Lark) newEventHandler(eventDispatcher *dispatcher.EventDispatcher) app.
 		}
 		c.Response.SetBody(eventResp.Body)
 	}
+}
+
+// stripMentionPlaceholders removes @mention placeholders (e.g. @_user_1)
+// from Lark message text. In group chats, Lark replaces @mentions with
+// placeholder keys in the content and provides a Mentions list.
+func stripMentionPlaceholders(text string, mentions []*larkim.MentionEvent) string {
+	for _, m := range mentions {
+		if m.Key == nil || *m.Key == "" {
+			continue
+		}
+		text = strings.ReplaceAll(text, *m.Key, "")
+	}
+	return strings.TrimSpace(text)
 }
 
 // extractText parses the JSON content field from a Lark message.
