@@ -118,17 +118,20 @@ func (l *Lark) Stop(_ context.Context) error {
 	return nil
 }
 
+// maxPostContentSize is the upper bound for a Lark post message content (30 KB).
+const maxPostContentSize = 30 * 1024
+
 func (l *Lark) SendMessage(ctx context.Context, chatID string, content string) error {
-	body, err := sonic.MarshalString(map[string]string{"text": content})
+	msgType, body, err := buildPostContent(content)
 	if err != nil {
-		return fmt.Errorf("marshal lark message content: %w", err)
+		return fmt.Errorf("build lark post content: %w", err)
 	}
 
 	resp, err := l.client.Im.Message.Create(ctx,
 		larkim.NewCreateMessageReqBuilder().
 			ReceiveIdType(larkim.ReceiveIdTypeChatId).
 			Body(larkim.NewCreateMessageReqBodyBuilder().
-				MsgType(larkim.MsgTypeText).
+				MsgType(msgType).
 				ReceiveId(chatID).
 				Content(body).
 				Build()).
@@ -140,6 +143,54 @@ func (l *Lark) SendMessage(ctx context.Context, chatID string, content string) e
 		return fmt.Errorf("lark send message failed: code=%d msg=%s", resp.Code, resp.Msg)
 	}
 	return nil
+}
+
+// buildPostContent converts markdown to a Lark post message. If the rendered
+// post exceeds maxPostContentSize it falls back to plain text (truncated).
+func buildPostContent(md string) (msgType string, body string, err error) {
+	paragraphs := markdownToPost(md)
+
+	post := map[string]interface{}{
+		"zh_cn": map[string]interface{}{
+			"content": paragraphs,
+		},
+	}
+	serialized, err := sonic.MarshalString(post)
+	if err != nil {
+		return "", "", err
+	}
+
+	if len(serialized) <= maxPostContentSize {
+		return larkim.MsgTypePost, serialized, nil
+	}
+
+	// Post too large — truncate paragraphs until it fits.
+	for len(paragraphs) > 1 {
+		paragraphs = paragraphs[:len(paragraphs)-1]
+		post["zh_cn"] = map[string]interface{}{
+			"content": append(paragraphs, []postElement{
+				{"tag": "text", "text": "… [truncated]"},
+			}),
+		}
+		serialized, err = sonic.MarshalString(post)
+		if err != nil {
+			return "", "", err
+		}
+		if len(serialized) <= maxPostContentSize {
+			return larkim.MsgTypePost, serialized, nil
+		}
+	}
+
+	// Still too large — fall back to plain text, truncated.
+	text := md
+	if len(text) > maxPostContentSize-20 {
+		text = text[:maxPostContentSize-20] + "… [truncated]"
+	}
+	plain, err := sonic.MarshalString(map[string]string{"text": text})
+	if err != nil {
+		return "", "", err
+	}
+	return larkim.MsgTypeText, plain, nil
 }
 
 func (l *Lark) SendChatAction(_ context.Context, _ string, _ channel.ChatAction) error {
