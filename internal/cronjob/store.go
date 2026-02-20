@@ -49,10 +49,10 @@ func (s *Store) Load() error {
 
 	s.jobs = make(map[string]Job, len(jobs))
 	for _, j := range jobs {
-		// Heartbeat jobs are always re-registered at startup by the
-		// gateway with fresh runtime fields (Workspace, etc.). Discard
-		// any that were accidentally persisted to avoid stale state.
-		if IsHeartbeatJob(j.ID) {
+		// Heartbeat and compact jobs are always re-registered at startup
+		// by the gateway with fresh runtime fields (Workspace, etc.).
+		// Discard any that were accidentally persisted to avoid stale state.
+		if IsHeartbeatJob(j.ID) || IsCompactJob(j.ID) {
 			continue
 		}
 		s.jobs[j.ID] = j

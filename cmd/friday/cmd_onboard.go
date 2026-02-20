@@ -411,6 +411,7 @@ func initWorkspace(workspaceDir string) error {
 		workspaceDir,
 		filepath.Join(workspaceDir, "memory"),
 		filepath.Join(workspaceDir, "memory", "sessions"),
+		filepath.Join(workspaceDir, "memory", "daily"),
 		filepath.Join(workspaceDir, "skills"),
 	}
 	for _, dir := range dirs {

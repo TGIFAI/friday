@@ -1,6 +1,10 @@
 package consts
 
-import _ "embed"
+import (
+	_ "embed"
+	"path/filepath"
+	"time"
+)
 
 var (
 	//go:embed tpl/AGENTS.md
@@ -39,6 +43,12 @@ var WorkspaceMarkdownFiles = []string{
 }
 
 const WorkspaceMemoryFile = "memory/MEMORY.md"
+
+const WorkspaceMemoryDailyDir = "memory/daily"
+
+func DailyMemoryFile(date time.Time) string {
+	return filepath.Join(WorkspaceMemoryDailyDir, date.Format("2006-01-02")+".md")
+}
 
 var WorkspaceMarkdownTemplates = map[string]string{
 	"AGENTS.md":        WorkspaceAgentsTemplate,

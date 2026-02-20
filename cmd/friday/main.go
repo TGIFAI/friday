@@ -16,6 +16,7 @@ func main() {
 		Commands: []*cli.Command{
 			gwHwd.cmd(),
 			msgHwd.cmd(),
+			cronjobHwd.cmd(),
 			onboardHwd.cmd(),
 			updateHwd.cmd(),
 		},

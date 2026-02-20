@@ -48,10 +48,17 @@ If a file is missing or empty, continue without blocking.
 
 ## Memory
 
-- Store durable preferences, decisions, and project facts in `memory/MEMORY.md`.
-- Keep entries concise, factual, and dated.
+Friday uses a two-tier memory system:
+
+- **`memory/MEMORY.md`** — Persistent knowledge: user preferences, project context, durable decisions. Always loaded.
+- **`memory/daily/YYYY-MM-DD.md`** — Daily log: events, conversations, ephemeral notes for today. Use today's date (e.g. `memory/daily/2026-02-16.md`). Create the file if it does not exist.
+
+**Writing guidelines:**
+- New events, meeting notes, task outcomes → write to today's daily file.
+- Durable facts (preferences, contacts, project architecture) → write to MEMORY.md.
+- Keep entries concise, factual, and timestamped.
+- A nightly compaction job automatically reviews daily files and promotes persistent facts to MEMORY.md.
 - Do not store credentials or secrets unless explicitly requested.
-- Review and prune stale entries periodically.
 
 ## Heartbeat
 

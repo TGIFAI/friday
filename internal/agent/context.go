@@ -107,6 +107,9 @@ func (ag *Agent) buildSystemPrompt() (string, error) {
 		}
 	}
 
+	// 2b. load daily memory (yesterday + today)
+	ag.loadDailyMemory(&prompt, time.Now())
+
 	// 3. load built-in skills
 	if builtInSkills, _ := ag.skills.GetBuiltInSkills(); len(builtInSkills) > 0 {
 		if text := ag.skills.BuildPrompt(builtInSkills); text != "" {
@@ -119,4 +122,25 @@ func (ag *Agent) buildSystemPrompt() (string, error) {
 
 	prompt.WriteString("\n\n---\n\n")
 	return prompt.String(), nil
+}
+
+// loadDailyMemory appends yesterday's and today's daily memory files to the
+// system prompt, giving the agent short-term temporal context.
+func (ag *Agent) loadDailyMemory(prompt *strings.Builder, now time.Time) {
+	dates := []time.Time{now.AddDate(0, 0, -1), now} // yesterday + today
+	for _, d := range dates {
+		relPath := consts.DailyMemoryFile(d)
+		content, err := os.ReadFile(filepath.Join(ag.workspace, relPath))
+		if err != nil {
+			continue
+		}
+		text := strings.TrimSpace(string(content))
+		if text == "" {
+			continue
+		}
+		if prompt.Len() > 0 {
+			prompt.WriteString("\n\n")
+		}
+		fmt.Fprintf(prompt, "<!-- daily memory: %s -->\n%s", d.Format("2006-01-02"), text)
+	}
 }

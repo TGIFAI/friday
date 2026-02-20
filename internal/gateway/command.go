@@ -104,6 +104,11 @@ func registerBuiltinCommands(r *CommandRouter) {
 		Description: "Show current agent and session status",
 		Handler:     cmdStatus,
 	})
+	r.Register(&Command{
+		Name:        "/cronjob",
+		Description: "List all scheduled cron jobs",
+		Handler:     cmdCronjob,
+	})
 }
 
 func cmdStart(_ context.Context, _ *Gateway, _ *channel.Message) (string, error) {
@@ -137,4 +142,12 @@ func cmdStatus(ctx context.Context, gw *Gateway, msg *channel.Message) (string, 
 
 	logs.CtxDebug(ctx, "[cmd:status] %s", b.String())
 	return b.String(), nil
+}
+
+func cmdCronjob(_ context.Context, _ *Gateway, _ *channel.Message) (string, error) {
+	s := cronjob.Default()
+	if s == nil {
+		return "Cron scheduler is not enabled", nil
+	}
+	return cronjob.FormatJobList(s.ListJobs()), nil
 }

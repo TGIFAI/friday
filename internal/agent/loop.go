@@ -56,7 +56,12 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 					logs.CtxWarn(ctx, "agent tool call failed: %s", callErr)
 					resMsg.Content = "ERROR: " + callErr.Error()
 				} else {
-					resMsg.Content, _ = sonic.MarshalString(res)
+					jsonStr, marshalErr := sonic.MarshalString(res)
+					if marshalErr != nil || jsonStr == "" {
+						resMsg.Content = "{}"
+					} else {
+						resMsg.Content = jsonStr
+					}
 				}
 				msgs = append(msgs, resMsg)
 			}

@@ -130,6 +130,8 @@ func (p *Provider) Generate(ctx context.Context, modelName string, messages []*s
 		return nil, fmt.Errorf("failed to get chat model for %s: %w", modelName, err)
 	}
 
+	sanitizeMessages(messages)
+
 	resp, err := chatModel.Generate(ctx, messages, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic API call failed: %w", err)
@@ -151,12 +153,35 @@ func (p *Provider) Stream(ctx context.Context, modelName string, messages []*sch
 		return nil, fmt.Errorf("failed to get chat model for %s: %w", modelName, err)
 	}
 
+	sanitizeMessages(messages)
+
 	streamReader, err := chatModel.Stream(ctx, messages, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream: %w", err)
 	}
 
 	return streamReader, nil
+}
+
+// sanitizeMessages ensures no message has completely empty content, which would
+// cause a panic in the upstream eino-ext Claude SDK (index out of range [-1]
+// in populateInput when MessageParam.Content is empty).
+func sanitizeMessages(msgs []*schema.Message) {
+	for _, m := range msgs {
+		if m.Content != "" || len(m.ToolCalls) > 0 ||
+			len(m.UserInputMultiContent) > 0 ||
+			len(m.AssistantGenMultiContent) > 0 ||
+			len(m.MultiContent) > 0 {
+			continue
+		}
+		// Message has no content at all — fill in a placeholder to prevent
+		// the SDK from producing an empty Content slice.
+		if m.Role == schema.Tool {
+			m.Content = "{}"
+		} else {
+			m.Content = "..."
+		}
+	}
 }
 
 func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (*claude.ChatModel, error) {

@@ -3,9 +3,13 @@ package cronjob
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/tgifai/friday/internal/config"
+	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
@@ -49,4 +53,44 @@ func Stop(ctx context.Context) {
 	}
 	s.Stop(ctx)
 	logs.CtxInfo(ctx, "[cronjob] global scheduler stopped")
+}
+
+// LoadJobsFromStore reads persisted jobs directly from the store file without
+// requiring a running scheduler. This is intended for CLI commands that need
+// to inspect jobs offline.
+func LoadJobsFromStore() ([]Job, error) {
+	storePath := filepath.Join(consts.FridayHomeDir(), defaultStorePath)
+	store := NewStore(storePath)
+	if err := store.Load(); err != nil {
+		return nil, err
+	}
+	return store.List(), nil
+}
+
+// FormatJobList renders a human-readable summary of the given jobs.
+func FormatJobList(jobs []Job) string {
+	if len(jobs) == 0 {
+		return "No scheduled jobs"
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Scheduled Jobs (%d):\n", len(jobs))
+
+	for i, j := range jobs {
+		fmt.Fprintf(&b, "\n%d. %s [%s]\n", i+1, j.Name, j.ID)
+		fmt.Fprintf(&b, "   Schedule: %s %s\n", j.ScheduleType, j.Schedule)
+		if j.Enabled {
+			b.WriteString("   Enabled: ✓\n")
+		} else {
+			b.WriteString("   Enabled: ✗\n")
+		}
+		if j.LastRunAt != nil {
+			fmt.Fprintf(&b, "   Last run: %s\n", j.LastRunAt.Format(time.RFC3339))
+		}
+		if j.NextRunAt != nil {
+			fmt.Fprintf(&b, "   Next run: %s\n", j.NextRunAt.Format(time.RFC3339))
+		}
+	}
+
+	return b.String()
 }
