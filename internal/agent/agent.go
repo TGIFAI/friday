@@ -10,6 +10,7 @@ import (
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/agent/skill"
 	"github.com/tgifai/friday/internal/agent/tool"
+	"github.com/tgifai/friday/internal/agent/tool/agentx"
 	"github.com/tgifai/friday/internal/agent/tool/cronx"
 	"github.com/tgifai/friday/internal/agent/tool/filex"
 	"github.com/tgifai/friday/internal/agent/tool/msgx"
@@ -96,6 +97,9 @@ func (ag *Agent) Init(_ context.Context) error {
 
 	// cron tools
 	_ = ag.tools.Register(cronx.NewCronTool())
+
+	// agent delegation tools
+	_ = ag.tools.Register(agentx.NewAgentTool(ag.workspace))
 
 	return nil
 }
