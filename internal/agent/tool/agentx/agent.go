@@ -3,6 +3,7 @@ package agentx
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +12,16 @@ import (
 
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
+
+// isSubpath reports whether child is under parent (or equal to parent).
+func isSubpath(parent, child string) bool {
+	parent = filepath.Clean(parent)
+	child = filepath.Clean(child)
+	if child == parent {
+		return true
+	}
+	return strings.HasPrefix(child, parent+string(filepath.Separator))
+}
 
 const (
 	maxSessions    = 8
@@ -128,6 +139,8 @@ func (t *AgentTool) executeCreate(ctx context.Context, args map[string]interface
 	workingDir := strings.TrimSpace(gconv.To[string](args["working_dir"]))
 	if workingDir == "" {
 		workingDir = t.workspace
+	} else if t.workspace != "" && !isSubpath(t.workspace, workingDir) {
+		return nil, fmt.Errorf("working_dir %q is outside agent workspace %q", workingDir, t.workspace)
 	}
 
 	req := &RunRequest{
@@ -154,14 +167,13 @@ func (t *AgentTool) executeCreate(ctx context.Context, args map[string]interface
 		sess.process = proc
 		go func() {
 			<-proc.Done()
-			res := proc.Result()
-			sess.CLISessionID = res.CLISessionID
-			sess.LastOutput = res.Output
-			if res.ExitCode == 0 {
-				sess.Status = StatusCompleted
-			} else {
-				sess.Status = StatusFailed
+			raw := proc.Result()
+			parsed := backend.ParseOutput(raw.Output, raw.ExitCode)
+			status := StatusCompleted
+			if parsed.ExitCode != 0 {
+				status = StatusFailed
 			}
+			sess.SetResult(parsed.CLISessionID, parsed.Output, status)
 		}()
 		return map[string]interface{}{
 			"session_id": sess.ID,
@@ -176,13 +188,11 @@ func (t *AgentTool) executeCreate(ctx context.Context, args map[string]interface
 
 	res, err := backend.Run(timeoutCtx, req)
 	if err != nil {
-		sess.Status = StatusFailed
+		sess.SetResult("", "", StatusFailed)
 		return nil, fmt.Errorf("agent execution failed: %w", err)
 	}
 
-	sess.CLISessionID = res.CLISessionID
-	sess.LastOutput = res.Output
-	sess.Status = StatusCompleted
+	sess.SetResult(res.CLISessionID, res.Output, StatusCompleted)
 
 	return map[string]interface{}{
 		"session_id":     sess.ID,
@@ -207,7 +217,8 @@ func (t *AgentTool) executeSend(ctx context.Context, args map[string]interface{}
 	if !ok {
 		return nil, fmt.Errorf("session %s not found", sessionID)
 	}
-	if sess.CLISessionID == "" {
+	cliSessionID, _, _ := sess.Snapshot()
+	if cliSessionID == "" {
 		return nil, fmt.Errorf("session %s has no CLI session ID (was it completed?)", sessionID)
 	}
 
@@ -219,14 +230,14 @@ func (t *AgentTool) executeSend(ctx context.Context, args map[string]interface{}
 	req := &RunRequest{
 		Prompt:     prompt,
 		WorkingDir: sess.WorkingDir,
-		ResumeID:   sess.CLISessionID,
+		ResumeID:   cliSessionID,
 	}
 
 	async := gconv.To[bool](args["async"])
 	logs.CtxInfo(ctx, "[tool:agent] send to session %s, resume=%s, async=%v", sessionID, sess.CLISessionID, async)
 
 	if async {
-		sess.Status = StatusRunning
+		sess.SetResult("", "", StatusRunning)
 		proc, err := backend.Start(ctx, req)
 		if err != nil {
 			return nil, err
@@ -234,16 +245,13 @@ func (t *AgentTool) executeSend(ctx context.Context, args map[string]interface{}
 		sess.process = proc
 		go func() {
 			<-proc.Done()
-			res := proc.Result()
-			if res.CLISessionID != "" {
-				sess.CLISessionID = res.CLISessionID
+			raw := proc.Result()
+			parsed := backend.ParseOutput(raw.Output, raw.ExitCode)
+			status := StatusCompleted
+			if parsed.ExitCode != 0 {
+				status = StatusFailed
 			}
-			sess.LastOutput = res.Output
-			if res.ExitCode == 0 {
-				sess.Status = StatusCompleted
-			} else {
-				sess.Status = StatusFailed
-			}
+			sess.SetResult(parsed.CLISessionID, parsed.Output, status)
 		}()
 		return map[string]interface{}{
 			"session_id": sess.ID,
@@ -254,22 +262,18 @@ func (t *AgentTool) executeSend(ctx context.Context, args map[string]interface{}
 	timeoutCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
-	sess.Status = StatusRunning
+	sess.SetResult("", "", StatusRunning)
 	res, err := backend.Run(timeoutCtx, req)
 	if err != nil {
-		sess.Status = StatusFailed
+		sess.SetResult("", "", StatusFailed)
 		return nil, fmt.Errorf("agent send failed: %w", err)
 	}
 
-	if res.CLISessionID != "" {
-		sess.CLISessionID = res.CLISessionID
-	}
-	sess.LastOutput = res.Output
-	sess.Status = StatusCompleted
+	sess.SetResult(res.CLISessionID, res.Output, StatusCompleted)
 
 	return map[string]interface{}{
 		"session_id":     sess.ID,
-		"cli_session_id": sess.CLISessionID,
+		"cli_session_id": res.CLISessionID,
 		"status":         StatusCompleted,
 		"result":         res.Output,
 	}, nil
@@ -286,17 +290,18 @@ func (t *AgentTool) executeStatus(args map[string]interface{}) (interface{}, err
 		return nil, fmt.Errorf("session %s not found", sessionID)
 	}
 
+	cliSessionID, lastOutput, status := sess.Snapshot()
 	result := map[string]interface{}{
 		"session_id": sess.ID,
 		"backend":    sess.Backend,
-		"status":     sess.Status,
+		"status":     status,
 		"created_at": sess.CreatedAt.Format(time.RFC3339),
 	}
-	if sess.CLISessionID != "" {
-		result["cli_session_id"] = sess.CLISessionID
+	if cliSessionID != "" {
+		result["cli_session_id"] = cliSessionID
 	}
-	if sess.LastOutput != "" {
-		result["result"] = sess.LastOutput
+	if lastOutput != "" {
+		result["result"] = lastOutput
 	}
 	return result, nil
 }

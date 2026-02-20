@@ -3,6 +3,7 @@ package agentx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 
@@ -95,6 +96,10 @@ func (b *CodexBackend) parseJSONL(raw string, exitCode int) *RunResult {
 	return result
 }
 
+func (b *CodexBackend) ParseOutput(raw string, exitCode int) *RunResult {
+	return b.parseJSONL(raw, exitCode)
+}
+
 func (b *CodexBackend) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
 	args := b.buildArgs(req)
 	cmd := exec.CommandContext(ctx, "codex", args...)
@@ -114,7 +119,7 @@ func (b *CodexBackend) Run(ctx context.Context, req *RunRequest) (*RunResult, er
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		} else {
-			return nil, err
+			return nil, fmt.Errorf("codex run: %w (stderr: %s)", err, stderr.String())
 		}
 	}
 
@@ -135,7 +140,7 @@ func (b *CodexBackend) Start(ctx context.Context, req *RunRequest) (*Process, er
 	cmd.Stderr = stderrBuf
 
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("codex start: %w", err)
 	}
 
 	done := make(chan struct{})

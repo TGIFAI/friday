@@ -62,6 +62,11 @@ func (b *ClaudeCodeBackend) parseResult(raw string, exitCode int) (*RunResult, e
 	}, nil
 }
 
+func (b *ClaudeCodeBackend) ParseOutput(raw string, exitCode int) *RunResult {
+	res, _ := b.parseResult(raw, exitCode)
+	return res
+}
+
 func (b *ClaudeCodeBackend) Run(ctx context.Context, req *RunRequest) (*RunResult, error) {
 	args := b.buildArgs(req)
 	cmd := exec.CommandContext(ctx, "claude", args...)

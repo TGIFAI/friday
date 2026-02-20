@@ -14,6 +14,9 @@ type Backend interface {
 	Available() bool
 	Run(ctx context.Context, req *RunRequest) (*RunResult, error)
 	Start(ctx context.Context, req *RunRequest) (*Process, error)
+	// ParseOutput parses raw CLI stdout into a structured RunResult.
+	// Used by async completion goroutines to extract session IDs and results.
+	ParseOutput(raw string, exitCode int) *RunResult
 }
 
 // RunRequest holds parameters for a CLI agent invocation.

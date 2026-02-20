@@ -43,6 +43,9 @@ func (m *mockBackend) Run(_ context.Context, _ *RunRequest) (*RunResult, error) 
 func (m *mockBackend) Start(_ context.Context, _ *RunRequest) (*Process, error) {
 	return &Process{}, nil
 }
+func (m *mockBackend) ParseOutput(raw string, exitCode int) *RunResult {
+	return &RunResult{Output: raw, ExitCode: exitCode}
+}
 
 var _ Backend = (*mockBackend)(nil)
 

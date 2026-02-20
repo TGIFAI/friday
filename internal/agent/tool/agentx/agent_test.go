@@ -127,6 +127,9 @@ func (b *testBackend) Run(_ context.Context, _ *RunRequest) (*RunResult, error) 
 func (b *testBackend) Start(_ context.Context, _ *RunRequest) (*Process, error) {
 	return &Process{done: make(chan struct{})}, nil
 }
+func (b *testBackend) ParseOutput(raw string, exitCode int) *RunResult {
+	return &RunResult{Output: raw, ExitCode: exitCode}
+}
 
 // ---------------------------------------------------------------------------
 // Integration tests with mock backend

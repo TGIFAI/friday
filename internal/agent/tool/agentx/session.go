@@ -14,6 +14,7 @@ const (
 
 // Session represents a single agent execution context.
 type Session struct {
+	mu           sync.RWMutex
 	ID           string
 	Backend      string
 	CLISessionID string
@@ -22,6 +23,24 @@ type Session struct {
 	CreatedAt    time.Time
 	LastOutput   string
 	process      *Process // nil for sync sessions
+}
+
+// SetResult updates the session's mutable fields atomically.
+func (s *Session) SetResult(cliSessionID, output, status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cliSessionID != "" {
+		s.CLISessionID = cliSessionID
+	}
+	s.LastOutput = output
+	s.Status = status
+}
+
+// Snapshot returns a copy of the session's mutable fields.
+func (s *Session) Snapshot() (cliSessionID, lastOutput, status string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.CLISessionID, s.LastOutput, s.Status
 }
 
 // SessionManager manages a set of sessions with optional capacity limits.
@@ -61,12 +80,20 @@ func (sm *SessionManager) Create(backend, workingDir string) *Session {
 // has already reached its maximum number of sessions.
 func (sm *SessionManager) CreateWithLimit(backend, workingDir string) (*Session, error) {
 	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	if sm.max > 0 && len(sm.sessions) >= sm.max {
-		sm.mu.Unlock()
-		return nil, fmt.Errorf("max sessions reached (%d)", sm.max)
+		return nil, fmt.Errorf("max sessions (%d) reached, destroy one first", sm.max)
 	}
-	sm.mu.Unlock()
-	return sm.Create(backend, workingDir), nil
+	id := fmt.Sprintf("as-%d", seq.Add(1))
+	s := &Session{
+		ID:         id,
+		Backend:    backend,
+		Status:     StatusRunning,
+		WorkingDir: workingDir,
+		CreatedAt:  time.Now(),
+	}
+	sm.sessions[id] = s
+	return s, nil
 }
 
 // Get retrieves a session by ID. The second return value indicates whether
