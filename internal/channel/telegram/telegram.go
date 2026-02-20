@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -23,6 +24,9 @@ const (
 	maxImageSize int64 = 3 * 1024 * 1024
 	// maxVoiceSize is the upper bound for downloading voice/audio (1 MB).
 	maxVoiceSize int64 = 1 * 1024 * 1024
+	// typingInterval is how often the typing indicator is refreshed.
+	// Telegram's typing status expires after ~5 seconds.
+	typingInterval = 3 * time.Second
 )
 
 var (
@@ -183,6 +187,29 @@ func (c *Telegram) SendChatAction(ctx context.Context, chatID string, action cha
 	}
 
 	return nil
+}
+
+func (c *Telegram) WorkInProgress(ctx context.Context, chatID string, _ string) (func(), error) {
+	_ = c.SendChatAction(ctx, chatID, channel.ChatActionTyping)
+
+	ticker := time.NewTicker(typingInterval)
+	done := make(chan struct{})
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = c.SendChatAction(ctx, chatID, channel.ChatActionTyping)
+			}
+		}
+	}()
+
+	return func() { close(done) }, nil
 }
 
 func (c *Telegram) ReactMessage(ctx context.Context, chatID string, messageID string, reaction string) error {

@@ -36,5 +36,6 @@ coverage-*.out
 *.coverprofile
 *.pprof
 
+.tmp
 .claude/
 workspace/

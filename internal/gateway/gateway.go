@@ -37,8 +37,6 @@ import (
 	"github.com/tgifai/friday/internal/provider/qwen"
 )
 
-const typingInterval = 3 * time.Second
-
 type Gateway struct {
 	agents     sync.Map
 	commands   *CommandRouter
@@ -366,9 +364,9 @@ func (gw *Gateway) processMessage(ctx context.Context, msg *channel.Message) err
 	}
 	ctx = context.WithValue(ctx, consts.CtxKeyAgentID, ag.ID())
 
-	stopTyping := gw.keepTyping(ctx, ch, msg.ChatID)
+	stopWIP, _ := ch.WorkInProgress(ctx, msg.ChatID, msg.ID)
 	resp, err := ag.ProcessMessage(ctx, msg)
-	stopTyping()
+	stopWIP()
 	if err != nil {
 		return fmt.Errorf("agent %s process message failed: %w", ag.ID(), err)
 	}
@@ -456,25 +454,3 @@ func (gw *Gateway) getAgentByChannel(channelID string) (*agent.Agent, error) {
 	return val.(*agent.Agent), nil
 }
 
-func (gw *Gateway) keepTyping(ctx context.Context, ch channel.Channel, chatID string) (stop func()) {
-	_ = ch.SendChatAction(ctx, chatID, channel.ChatActionTyping)
-
-	ticker := time.NewTicker(typingInterval)
-	done := make(chan struct{})
-
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				_ = ch.SendChatAction(ctx, chatID, channel.ChatActionTyping)
-			}
-		}
-	}()
-
-	return func() { close(done) }
-}

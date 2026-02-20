@@ -135,6 +135,10 @@ func (h *HTTP) SendChatAction(_ context.Context, _ string, _ channel.ChatAction)
 	return channel.ErrUnsupportedOperation
 }
 
+func (h *HTTP) WorkInProgress(_ context.Context, _ string, _ string) (func(), error) {
+	return func() {}, nil
+}
+
 func (h *HTTP) ReactMessage(_ context.Context, _ string, _ string, _ string) error {
 	return channel.ErrUnsupportedOperation
 }

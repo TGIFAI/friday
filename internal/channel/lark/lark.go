@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/hertz/pkg/app"
@@ -195,6 +196,40 @@ func buildPostContent(md string) (msgType string, body string, err error) {
 
 func (l *Lark) SendChatAction(_ context.Context, _ string, _ channel.ChatAction) error {
 	return channel.ErrUnsupportedOperation
+}
+
+func (l *Lark) WorkInProgress(ctx context.Context, _ string, messageID string) (func(), error) {
+	resp, err := l.client.Im.MessageReaction.Create(ctx,
+		larkim.NewCreateMessageReactionReqBuilder().
+			MessageId(messageID).
+			Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+				ReactionType(larkim.NewEmojiBuilder().EmojiType("OnIt").Build()).
+				Build()).
+			Build())
+	if err != nil || !resp.Success() {
+		return func() {}, nil
+	}
+
+	reactionID := *resp.Data.ReactionId
+
+	return func() {
+		delCtx, delCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer delCancel()
+		// Remove "OnIt" reaction.
+		_, _ = l.client.Im.MessageReaction.Delete(delCtx,
+			larkim.NewDeleteMessageReactionReqBuilder().
+				MessageId(messageID).
+				ReactionId(reactionID).
+				Build())
+		// Add "DONE" reaction.
+		_, _ = l.client.Im.MessageReaction.Create(delCtx,
+			larkim.NewCreateMessageReactionReqBuilder().
+				MessageId(messageID).
+				Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+					ReactionType(larkim.NewEmojiBuilder().EmojiType("DONE").Build()).
+					Build()).
+				Build())
+	}, nil
 }
 
 func (l *Lark) ReactMessage(ctx context.Context, _ string, messageID string, reaction string) error {

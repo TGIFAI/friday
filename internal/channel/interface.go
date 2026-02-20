@@ -49,6 +49,13 @@ type Channel interface {
 	// The handler is invoked for each incoming normalized Message.
 	RegisterMessageHandler(handler func(ctx context.Context, msg *Message) error) error
 
+	// WorkInProgress signals to the chat that the bot is processing a request.
+	// Implementations should provide a user-friendly indicator (e.g. typing
+	// status, message reaction). The returned cancel function stops/removes the
+	// indicator and optionally sets a completion signal. Channels that do not
+	// support work-in-progress indicators should return a no-op cancel and nil error.
+	WorkInProgress(ctx context.Context, chatID string, messageID string) (cancel func(), err error)
+
 	// Routes declare HTTP routes. The gateway registers these routes after construction. (optional)
 	Routes() []Route
 }
