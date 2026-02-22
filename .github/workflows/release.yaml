@@ -38,8 +38,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout skills
+        uses: actions/checkout@v4
+        with:
+          repository: TGIFAI/skills
+          path: skills
+
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -53,13 +59,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p output/skills output/logs
-          cp -r skills output/skills
-          cp 
+          STAGING="${APP_NAME}"
+          mkdir -p "${STAGING}/skills" "${STAGING}/logs"
+          cp -r skills/* "${STAGING}/skills/"
+          cp config.yaml.example "${STAGING}/"
 
           DATE="$(date -u +%Y%m%d%H%M%S)"
           GIT_SHA="${GITHUB_SHA::7}"
-          NAME="${APP_NAME}_${VERSION}_${GOOS}_${GOARCH}"
           EXT=""
           if [ "${GOOS}" = "windows" ]; then
             EXT=".exe"
@@ -68,17 +74,18 @@ jobs:
           CGO_ENABLED=0 go build \
             -trimpath \
             -ldflags="-s -w -X github.com/tgifai/friday.DATE=${DATE} -X github.com/tgifai/friday.MAGIC=${GIT_SHA} -X github.com/tgifai/friday.VERSION=${VERSION}" \
-            -o "output/${NAME}${EXT}" \
+            -o "${STAGING}/${APP_NAME}${EXT}" \
             ./cmd/friday
 
-          echo "BINARY_NAME=${NAME}${EXT}" >> "$GITHUB_ENV"
+          echo "BINARY_PATH=${STAGING}/${APP_NAME}${EXT}" >> "$GITHUB_ENV"
+          echo "STAGING=${STAGING}" >> "$GITHUB_ENV"
 
       - name: Compress binary with UPX
         if: matrix.goos == 'linux' || (matrix.goos == 'windows' && matrix.goarch == 'amd64')
         uses: crazy-max/ghaction-upx@v3
         with:
           version: latest
-          files: output/${{ env.BINARY_NAME }}
+          files: ${{ env.BINARY_PATH }}
           args: --best --lzma
 
       - name: Package archive
@@ -90,13 +97,10 @@ jobs:
         run: |
           set -euo pipefail
           NAME="${APP_NAME}_${VERSION}_${GOOS}_${GOARCH}"
-          EXT=""
-          if [ "${GOOS}" = "windows" ]; then
-            EXT=".exe"
-          fi
+          mkdir -p output
 
-          tar -czf "output/${NAME}.tar.gz" -C output "${NAME}${EXT}"
-          rm -f "output/${NAME}${EXT}"
+          tar -czf "output/${NAME}.tar.gz" "${STAGING}"
+          rm -rf "${STAGING}"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
