@@ -13,6 +13,7 @@ import (
 	"github.com/tgifai/friday/internal/agent/tool/agentx"
 	"github.com/tgifai/friday/internal/agent/tool/cronx"
 	"github.com/tgifai/friday/internal/agent/tool/filex"
+	"github.com/tgifai/friday/internal/agent/tool/httpx"
 	"github.com/tgifai/friday/internal/agent/tool/msgx"
 	"github.com/tgifai/friday/internal/agent/tool/qmdx"
 	"github.com/tgifai/friday/internal/agent/tool/shellx"
@@ -94,6 +95,9 @@ func (ag *Agent) Init(_ context.Context) error {
 	// web tools
 	_ = ag.tools.Register(webx.NewFetchTool())
 	_ = ag.tools.Register(webx.NewSearchTool())
+
+	// http tools
+	_ = ag.tools.Register(httpx.NewRequestTool())
 
 	// cron tools
 	_ = ag.tools.Register(cronx.NewCronTool())

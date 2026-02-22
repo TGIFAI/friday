@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/tgifai/friday/internal/pkg/logs"
+	pkgutils "github.com/tgifai/friday/internal/pkg/utils"
 )
 
 const (
@@ -38,7 +38,7 @@ func NewFetchTool() *FetchTool {
 				if len(via) >= fetchMaxRedirs {
 					return fmt.Errorf("too many redirects (max %d)", fetchMaxRedirs)
 				}
-				if isPrivateHost(req.URL.Hostname()) {
+				if pkgutils.IsPrivateHost(req.URL.Hostname()) {
 					return fmt.Errorf("redirect to private address blocked")
 				}
 				return nil
@@ -107,7 +107,7 @@ func (t *FetchTool) Execute(ctx context.Context, args map[string]interface{}) (i
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, fmt.Errorf("only http and https URLs are allowed")
 	}
-	if isPrivateHost(parsed.Hostname()) {
+	if pkgutils.IsPrivateHost(parsed.Hostname()) {
 		return nil, fmt.Errorf("access to private/internal addresses is not allowed")
 	}
 
@@ -260,27 +260,3 @@ func looksLikeHTML(body []byte) bool {
 	return strings.HasPrefix(prefix, "<!doctype") || strings.HasPrefix(prefix, "<html")
 }
 
-// isPrivateHost checks whether a hostname resolves to a private/loopback address.
-func isPrivateHost(host string) bool {
-	// Check well-known private hostnames first.
-	if host == "localhost" || host == "metadata.google.internal" {
-		return true
-	}
-
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		// If DNS fails, check if it's a raw IP.
-		ip := net.ParseIP(host)
-		if ip == nil {
-			return false
-		}
-		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
-	}
-
-	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-			return true
-		}
-	}
-	return false
-}

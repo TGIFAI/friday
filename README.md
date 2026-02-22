@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://tgif.sh">Website</a> · <a href="https://docs.tgif.sh">Docs</a> · <a href="#quick-start">Getting Started</a> · <a href="#configuration">Configuration</a>
+  <a href="https://tgif.sh">Website</a> · <a href="https://docs.tgif.sh">Docs</a> · <a href="#quick-start">Getting Started</a> · <a href="#configuration">Configuration</a> · <a href="./README.zh-CN.md">中文</a>
 </p>
 
 ---
