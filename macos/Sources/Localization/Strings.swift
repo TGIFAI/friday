@@ -14,53 +14,37 @@ enum L10n {
     static var stopRuntime: String { localized("Stop", "停止") }
     static var restartRuntime: String { localized("Restart", "重启") }
 
-    static var editConfig: String { localized("Edit Config...", "编辑配置...") }
+    static var editConfig: String { localized("Edit Config", "编辑配置") }
     static var showInFinder: String { localized("Show in Finder", "在 Finder 中显示") }
-    static var settings: String { localized("Settings...", "设置...") }
-    static var quitApp: String { localized("Quit Friday", "退出 Friday") }
+    static var quitApp: String { localized("Quit", "退出") }
 
-    // MARK: - Settings Tabs
-
-    static var general: String { localized("General", "通用") }
-    static var apiKeys: String { localized("API Keys", "API 密钥") }
-    static var logs: String { localized("Logs", "日志") }
     static var language: String { localized("Language", "语言") }
-
-    // MARK: - General Tab
-
-    static var runtime: String { localized("Runtime", "运行时") }
-    static var status: String { localized("Status", "状态") }
-    static var bindAddress: String { localized("Bind Address", "绑定地址") }
-    static var config: String { localized("Config", "配置") }
-    static var editConfigYaml: String { localized("Edit config.yaml", "编辑 config.yaml") }
-    static var revealInFinder: String { localized("Reveal in Finder", "在 Finder 中显示") }
-
-    // MARK: - API Keys Tab
-
-    static var providerAPIKeys: String { localized("Provider API Keys", "服务商 API 密钥") }
-    static var apiKeysHint: String {
-        localized(
-            "Keys are stored in macOS Keychain and injected as environment variables.",
-            "密钥存储在 macOS 钥匙串中，并作为环境变量注入。"
-        )
-    }
     static var save: String { localized("Save", "保存") }
     static var saved: String { localized("Saved", "已保存") }
-
-    // MARK: - Logs Tab
-
-    static var runtimeLogs: String { localized("Runtime Logs", "运行日志") }
     static var clear: String { localized("Clear", "清空") }
 
-    // MARK: - Language Tab
+    // MARK: - Config Editor
 
-    static var languageSettings: String { localized("Language Settings", "语言设置") }
-    static var selectLanguage: String { localized("Display Language", "显示语言") }
-    static var languageHint: String {
-        localized(
-            "Choose the display language for the app interface.",
-            "选择应用界面的显示语言。"
-        )
+    static var configEditor: String { localized("Config", "配置编辑") }
+    static var configReload: String { localized("Reload", "重新加载") }
+    static var configOpenExternal: String { localized("Open in Editor", "用编辑器打开") }
+    static var configUnsaved: String { localized("Unsaved", "未保存") }
+    static var configNotFound: String { localized("config.yaml not found", "未找到 config.yaml") }
+    static var viewConfig: String { localized("Config...", "配置编辑...") }
+    static var configGuide: String { localized("Config Guide", "配置指南") }
+    static var configSaveRestart: String { localized("Save & Restart", "保存并重启") }
+
+    // MARK: - Log Viewer
+
+    static var logViewer: String { localized("Log Viewer", "日志查看器") }
+    static var viewLogs: String { localized("Log Viewer...", "日志查看器...") }
+    static var logSearch: String { localized("Search...", "搜索...") }
+    static var logAutoScroll: String { localized("Auto-scroll", "自动滚动") }
+    static var logCopy: String { localized("Copy All", "全部复制") }
+    static var logEmpty: String { localized("No logs yet", "暂无日志") }
+
+    static func logFilteredOf(_ shown: Int, _ total: Int) -> String {
+        localized("\(shown) of \(total)", "\(shown) / \(total)")
     }
 
     // MARK: - Errors

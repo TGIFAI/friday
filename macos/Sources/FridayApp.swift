@@ -8,12 +8,18 @@ struct FridayApp: App {
         MenuBarExtra {
             MenuBarView(runtime: runtime)
         } label: {
-            Label("Friday", systemImage: runtime.isRunning ? "sparkle" : "sparkle.magnifyingglass")
+            Image(nsImage: StatusBarIcon.make(active: runtime.isRunning))
         }
         .menuBarExtraStyle(.window)
 
-        Settings {
-            SettingsView(runtime: runtime)
+        Window(L10n.configEditor, id: "config-editor") {
+            ConfigEditorView(runtime: runtime)
         }
+        .defaultSize(width: 700, height: 500)
+
+        Window(L10n.logViewer, id: "log-viewer") {
+            LogViewerView(runtime: runtime)
+        }
+        .defaultSize(width: 750, height: 500)
     }
 }

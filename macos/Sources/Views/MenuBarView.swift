@@ -3,6 +3,8 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var runtime: FridayRuntime
     @ObservedObject private var lang = LanguageManager.shared
+    @Environment(\.openWindow) private var openWindow
+    @State private var languageExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -11,6 +13,8 @@ struct MenuBarView: View {
             controlSection
             sectionDivider
             actionSection
+            sectionDivider
+            languageSection
             sectionDivider
             footerSection
         }
@@ -30,7 +34,6 @@ struct MenuBarView: View {
 
     private var headerSection: some View {
         HStack(spacing: 12) {
-            // Status indicator with pulse when running
             ZStack {
                 if runtime.isRunning {
                     Circle()
@@ -41,8 +44,8 @@ struct MenuBarView: View {
                 Circle()
                     .fill(runtime.isRunning ? Color.statusActive : Color.secondary.opacity(0.25))
                     .frame(width: 28, height: 28)
-                Image(systemName: "sparkle")
-                    .font(.system(size: 13, weight: .bold))
+                Text("F")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundStyle(runtime.isRunning ? .white : .secondary)
             }
             .frame(width: 36, height: 36)
@@ -132,18 +135,90 @@ struct MenuBarView: View {
 
     private var actionSection: some View {
         VStack(spacing: 0) {
-            menuRow(L10n.editConfig, icon: "doc.text") {
-                ConfigManager().openInEditor()
+            menuRow(L10n.viewConfig, icon: "doc.text") {
+                openWindow(id: "config-editor")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            menuRow(L10n.viewLogs, icon: "text.line.last.and.arrowtriangle.forward") {
+                openWindow(id: "log-viewer")
+                NSApp.activate(ignoringOtherApps: true)
             }
             menuRow(L10n.showInFinder, icon: "folder") {
                 ConfigManager().revealInFinder()
             }
-            menuRow(L10n.settings, icon: "gearshape") {
-                openSettings()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Language (expandable submenu)
+
+    private var languageSection: some View {
+        VStack(spacing: 0) {
+            // Parent row: click to expand/collapse
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    languageExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "globe")
+                        .font(FridayFont.icon)
+                        .frame(width: 20, alignment: .center)
+                    Text(L10n.language)
+                        .font(FridayFont.body)
+                    Spacer()
+                    Text(lang.current.displayName)
+                        .font(FridayFont.caption)
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(languageExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(MenuRowButtonStyle())
+
+            // Submenu items
+            if languageExpanded {
+                VStack(spacing: 0) {
+                    ForEach(AppLanguage.allCases) { language in
+                        languageOption(language)
+                    }
+                }
+                .padding(.leading, 30)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    private func languageOption(_ language: AppLanguage) -> some View {
+        let isSelected = lang.current == language
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                lang.current = language
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isSelected ? "checkmark" : "")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 14, alignment: .center)
+                    .foregroundStyle(Color.fridayAccent)
+                Text(language.displayName)
+                    .font(FridayFont.body)
+                    .foregroundStyle(isSelected ? Color.fridayAccent : .primary)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(MenuRowButtonStyle())
     }
 
     // MARK: - Footer
@@ -185,10 +260,6 @@ struct MenuBarView: View {
         .buttonStyle(MenuRowButtonStyle())
     }
 
-    private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
 }
 
 // MARK: - Pulse Animation

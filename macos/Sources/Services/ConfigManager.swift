@@ -32,7 +32,15 @@ final class ConfigManager {
         FileManager.default.fileExists(atPath: configURL.path)
     }
 
-    /// Ensure the FRIDAY_HOME directory structure exists.
+    /// Ensure directory structure exists and write default config if missing.
+    func initializeIfNeeded() throws {
+        try bootstrap()
+        if !configExists {
+            try Self.defaultConfigYAML.write(to: configURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Ensure the FRIDAY_HOME directory structure exists and sync bundled skills.
     func bootstrap() throws {
         let fm = FileManager.default
         let dirs = [
@@ -46,6 +54,28 @@ final class ConfigManager {
                 try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             }
         }
+        syncBundledSkills()
+    }
+
+    /// Copy built-in skills from the app bundle's Resources/skills/ into FRIDAY_HOME/skills/.
+    /// Overwrites existing files to keep skills up-to-date with the app version.
+    private func syncBundledSkills() {
+        guard let bundledSkills = Bundle.main.resourceURL?.appendingPathComponent("skills"),
+              FileManager.default.fileExists(atPath: bundledSkills.path) else { return }
+
+        let fm = FileManager.default
+        let destSkills = fridayHome.appendingPathComponent("skills")
+
+        guard let entries = try? fm.contentsOfDirectory(
+            at: bundledSkills, includingPropertiesForKeys: nil
+        ) else { return }
+
+        for src in entries {
+            let dst = destSkills.appendingPathComponent(src.lastPathComponent)
+            // Remove old version then copy fresh
+            try? fm.removeItem(at: dst)
+            try? fm.copyItem(at: src, to: dst)
+        }
     }
 
     /// Open config.yaml in the user's default editor.
@@ -57,9 +87,55 @@ final class ConfigManager {
     func revealInFinder() {
         NSWorkspace.shared.selectFile(configURL.path, inFileViewerRootedAtPath: fridayHome.path)
     }
+
+    // MARK: - Default Config Template
+
+    static let defaultConfigYAML = """
+    # Friday Configuration
+    # Full guide: https://tgif.sh/pilot
+
+    gateway:
+      bind: "127.0.0.1:8080"
+      max_concurrent_sessions: 100
+      request_timeout: 300
+
+    logging:
+      level: "info"
+      format: "text"
+      output: "stdout"
+
+    providers:
+      openai:
+        type: "openai"
+        config:
+          api_key: "${OPENAI_API_KEY}"
+          default_model: "gpt-4o-mini"
+          timeout: 60
+          max_retries: 3
+
+    channels:
+      http:
+        type: "http"
+        enabled: true
+        config:
+          api_key: "${HTTP_API_KEY}"
+
+    agents:
+      default:
+        name: "Default"
+        workspace: "workspaces/default"
+        channels:
+          - "http"
+        models:
+          primary: "openai:gpt-4o-mini"
+        config:
+          max_iterations: 10
+          max_tokens: 4000
+          temperature: 0.7
+    """
 }
 
-// MARK: - Config model (subset, for reading gateway.bind and display)
+// MARK: - Config model (subset, for reading gateway.bind)
 
 struct FridayConfig: Codable {
     var gateway: GatewayConfig
