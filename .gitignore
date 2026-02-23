@@ -39,3 +39,10 @@ coverage-*.out
 .tmp
 .claude/
 workspace/
+
+# macOS app build artifacts
+macos/build/
+macos/*.xcodeproj
+macos/Resources/friday-core
+macos/Resources/friday-core-*
+macos/Resources/skills/
