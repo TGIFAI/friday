@@ -110,10 +110,141 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Prepare macOS core binary
+        if: matrix.goos == 'darwin'
+        run: cp "${{ env.BINARY_PATH }}" "friday-core-${{ matrix.goarch }}"
+
+      - name: Upload macOS core binary
+        if: matrix.goos == 'darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-core-${{ matrix.goarch }}
+          path: friday-core-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  build-macos-app:
+    name: Build Friday.app + DMG
+    runs-on: macos-15
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout skills
+        uses: actions/checkout@v4
+        with:
+          repository: TGIFAI/skills
+          path: skills
+
+      - name: Download Go binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: macos-core-*
+          merge-multiple: true
+          path: macos/Resources
+
+      - name: Create universal binary
+        run: |
+          set -euo pipefail
+          cd macos/Resources
+          lipo -create friday-core-arm64 friday-core-amd64 -output friday-core
+          chmod +x friday-core
+          rm -f friday-core-arm64 friday-core-amd64
+          echo "Universal binary: $(file friday-core)"
+
+      - name: Bundle skills
+        run: |
+          if [ -d skills ]; then
+            rm -rf macos/Resources/skills
+            cp -r skills macos/Resources/skills
+          fi
+
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /opt/homebrew/Cellar/xcodegen
+          key: brew-xcodegen-${{ runner.os }}
+
+      - name: Install xcodegen
+        run: brew install xcodegen || true
+
+      - name: Generate Xcode project
+        run: cd macos && xcodegen generate --quiet
+
+      - name: Build app
+        run: |
+          set -euo pipefail
+          cd macos
+          xcodebuild \
+            -project Friday.xcodeproj \
+            -scheme Friday \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGN_IDENTITY="-" \
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee /tmp/xcodebuild.log | tail -30
+          # pipefail ensures xcodebuild failure propagates
+
+      - name: Verify app bundle
+        run: |
+          APP_PATH="macos/build/DerivedData/Build/Products/Release/Friday.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Friday.app not found"
+            exit 1
+          fi
+          echo "Friday.app size: $(du -sh "$APP_PATH" | cut -f1)"
+          echo "Architectures: $(file "$APP_PATH/Contents/MacOS/Friday")"
+          echo "Go core: $(file "$APP_PATH/Contents/Resources/friday-core")"
+
+      - name: Create DMG
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          APP_PATH="macos/build/DerivedData/Build/Products/Release/Friday.app"
+
+          # Stage DMG contents
+          mkdir -p dmg-staging
+          cp -r "$APP_PATH" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+
+          # Create DMG
+          mkdir -p output
+          hdiutil create \
+            -volname "Friday ${VERSION}" \
+            -srcfolder dmg-staging \
+            -ov \
+            -format UDZO \
+            "output/${APP_NAME}_${VERSION}_darwin_universal.dmg"
+
+          rm -rf dmg-staging
+          echo "DMG size: $(du -sh output/*.dmg | cut -f1)"
+
+      - name: Package tar.gz
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          APP_PATH="macos/build/DerivedData/Build/Products/Release/Friday.app"
+          tar -czf "output/${APP_NAME}_${VERSION}_darwin_universal_app.tar.gz" \
+            -C "$(dirname "$APP_PATH")" Friday.app
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-darwin-app
+          path: output/*
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Publish Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, build-macos-app]
     permissions:
       contents: write
 
@@ -130,7 +261,7 @@ jobs:
         run: |
           set -euo pipefail
           cd output
-          sha256sum *.tar.gz > checksums.txt
+          sha256sum *.tar.gz *.dmg > checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -139,4 +270,5 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             output/*.tar.gz
+            output/*.dmg
             output/checksums.txt
