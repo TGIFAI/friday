@@ -75,7 +75,7 @@ func (r *GatewayRunner) run(ctx context.Context, _ *cli.Command) error {
 
 	logs.CtxInfo(ctx, "ALL IS WELL!!! Press Ctrl+C to stop.")
 
-	if friday.VERSION != "n/a" && cfg.Gateway.AutoUpdate {
+	if friday.VERSION != "n/a" && friday.VERSION != "dev" && cfg.Gateway.AutoUpdate {
 		logs.CtxInfo(ctx, "auto-update enabled, starting background checker...")
 		go updater.StartAutoUpdate(ctx, updater.New(), 0)
 	}

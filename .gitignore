@@ -17,7 +17,7 @@ output/
 
 # Local environment / secrets
 .env
-.env.*
+docker/.env
 *.local
 
 # Local config overrides
