@@ -18,6 +18,7 @@ settings:
     INFOPLIST_FILE: Info.plist
     CODE_SIGN_ENTITLEMENTS: Friday.entitlements
     CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: "YES"
 
 targets:
   Friday:
