@@ -124,9 +124,17 @@ jobs:
           retention-days: 1
 
   build-macos-app:
-    name: Build Friday.app + DMG
+    name: Friday.app (${{ matrix.arch }})
     runs-on: macos-15
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            goarch: arm64
+          - arch: x86_64
+            goarch: amd64
 
     steps:
       - name: Checkout
@@ -138,27 +146,24 @@ jobs:
           repository: TGIFAI/skills
           path: skills
 
-      - name: Download Go binaries
+      - name: Download Go binary
         uses: actions/download-artifact@v4
         with:
-          pattern: macos-core-*
-          merge-multiple: true
+          name: macos-core-${{ matrix.goarch }}
           path: macos/Resources
 
-      - name: Create universal binary
+      - name: Prepare Go binary
         run: |
-          set -euo pipefail
           cd macos/Resources
-          lipo -create friday-core-arm64 friday-core-amd64 -output friday-core
+          mv friday-core-${{ matrix.goarch }} friday-core
           chmod +x friday-core
-          rm -f friday-core-arm64 friday-core-amd64
-          echo "Universal binary: $(file friday-core)"
+          echo "Go core: $(file friday-core) — $(du -h friday-core | cut -f1)"
 
       - name: Bundle skills
         run: |
           if [ -d skills ]; then
             rm -rf macos/Resources/skills
-            cp -r skills macos/Resources/skills
+            rsync -a --exclude='.git' skills/ macos/Resources/skills/
           fi
 
       - name: Cache Homebrew packages
@@ -170,7 +175,7 @@ jobs:
           key: brew-xcodegen-${{ runner.os }}
 
       - name: Install xcodegen
-        run: brew install xcodegen || true
+        run: brew install xcodegen 2>/dev/null || brew link --overwrite xcodegen
 
       - name: Generate Xcode project
         run: cd macos && xcodegen generate --quiet
@@ -180,7 +185,6 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # Strip leading 'v' for MARKETING_VERSION (e.g. v0.1.1 -> 0.1.1)
           MKT_VERSION="${VERSION#v}"
           cd macos
           xcodebuild \
@@ -188,21 +192,27 @@ jobs:
             -scheme Friday \
             -configuration Release \
             -derivedDataPath build/DerivedData \
+            -arch ${{ matrix.arch }} \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY="-" \
             DEVELOPMENT_TEAM="" \
             MARKETING_VERSION="${MKT_VERSION}" \
             2>&1 | tee /tmp/xcodebuild.log | tail -30
-          # pipefail ensures xcodebuild failure propagates
 
       - name: Verify app bundle
         run: |
+          set -euo pipefail
           APP_PATH="macos/build/DerivedData/Build/Products/Release/Friday.app"
           if [ ! -d "$APP_PATH" ]; then
             echo "::error::Friday.app not found"
             exit 1
           fi
+          if [ ! -f "$APP_PATH/Contents/Resources/friday-core" ]; then
+            echo "::error::friday-core not found in app bundle"
+            exit 1
+          fi
           echo "Friday.app size: $(du -sh "$APP_PATH" | cut -f1)"
-          echo "Architectures: $(file "$APP_PATH/Contents/MacOS/Friday")"
+          echo "Swift binary: $(file "$APP_PATH/Contents/MacOS/Friday")"
           echo "Go core: $(file "$APP_PATH/Contents/Resources/friday-core")"
 
       - name: Create DMG
@@ -212,37 +222,31 @@ jobs:
           set -euo pipefail
           APP_PATH="macos/build/DerivedData/Build/Products/Release/Friday.app"
 
-          # Stage DMG contents
           mkdir -p dmg-staging
           cp -r "$APP_PATH" dmg-staging/
           ln -s /Applications dmg-staging/Applications
 
-          # Create DMG
           mkdir -p output
           hdiutil create \
             -volname "Friday ${VERSION}" \
             -srcfolder dmg-staging \
             -ov \
             -format UDZO \
-            "output/${APP_NAME}_${VERSION}_darwin_universal.dmg"
+            "output/${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}.dmg"
 
           rm -rf dmg-staging
-          echo "DMG size: $(du -sh output/*.dmg | cut -f1)"
 
-      - name: Package tar.gz
-        env:
-          VERSION: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          APP_PATH="macos/build/DerivedData/Build/Products/Release/Friday.app"
-          tar -czf "output/${APP_NAME}_${VERSION}_darwin_universal_app.tar.gz" \
-            -C "$(dirname "$APP_PATH")" Friday.app
+          # Compress DMG into tar.gz
+          tar -czf "output/${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}.dmg.tar.gz" \
+            -C output "${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}.dmg"
+          rm -f "output/${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}.dmg"
+          echo "DMG archive: $(du -h output/*.tar.gz | cut -f1)"
 
-      - name: Upload build artifacts
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-darwin-app
-          path: output/*
+          name: build-darwin-app-${{ matrix.goarch }}
+          path: output/*.tar.gz
           if-no-files-found: error
           retention-days: 7
 
@@ -266,7 +270,7 @@ jobs:
         run: |
           set -euo pipefail
           cd output
-          sha256sum *.tar.gz *.dmg > checksums.txt
+          sha256sum *.tar.gz > checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -275,5 +279,4 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             output/*.tar.gz
-            output/*.dmg
             output/checksums.txt
