@@ -143,7 +143,7 @@ func (t *FileTool) writeFile(ctx context.Context, args map[string]interface{}) (
 
 	content, ok := args["content"].(string)
 	if !ok {
-		return nil, fmt.Errorf("content is required")
+		return nil, fmt.Errorf("write_file: missing required parameter 'content'")
 	}
 
 	absPath, err := t.resolvePath(path)

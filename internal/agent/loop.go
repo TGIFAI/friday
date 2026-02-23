@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/eino/components/model"
@@ -35,9 +36,13 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 	}
 	for iter := 0; iter < maxIterations; iter++ {
 		llmResp, err := p.Generate(ctx, ms.ModelName, msgs, opts...)
-		if err != nil || llmResp == nil {
-			logs.CtxWarn(ctx, "agent msg generation (nil: %v) failed: %s", llmResp == nil, err)
+		if err != nil {
+			logs.CtxWarn(ctx, "[agent:%s] LLM call to %s:%s failed: %v", ag.id, ms.ProviderID, ms.ModelName, err)
 			return nil, err
+		}
+		if llmResp == nil {
+			logs.CtxWarn(ctx, "[agent:%s] LLM call to %s:%s returned empty response", ag.id, ms.ProviderID, ms.ModelName)
+			return nil, fmt.Errorf("LLM returned empty response from %s:%s", ms.ProviderID, ms.ModelName)
 		}
 
 		str, _ := sonic.MarshalString(llmResp)
@@ -53,7 +58,7 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 					ToolCallID: call.ID,
 				}
 				if callErr != nil {
-					logs.CtxWarn(ctx, "agent tool call failed: %s", callErr)
+					logs.CtxWarn(ctx, "[agent:%s] tool %q (call_id=%s) failed: %v", ag.id, call.Function.Name, call.ID, callErr)
 					resMsg.Content = "ERROR: " + callErr.Error()
 				} else {
 					jsonStr, marshalErr := sonic.MarshalString(res)

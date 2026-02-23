@@ -13,6 +13,7 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/hertz/pkg/app"
 	lark "github.com/larksuite/oapi-sdk-go/v3"
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkevent "github.com/larksuite/oapi-sdk-go/v3/event"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -33,11 +34,11 @@ const (
 var _ channel.Channel = (*Lark)(nil)
 
 type Lark struct {
-	id           string
-	config       Config
-	client       *lark.Client
-	handler      func(ctx context.Context, msg *channel.Message) error
-	mu           sync.RWMutex
+	id      string
+	config  Config
+	client  *lark.Client
+	handler func(ctx context.Context, msg *channel.Message) error
+	mu      sync.RWMutex
 
 	// webhook mode
 	eventHandler app.HandlerFunc // nil in ws mode
@@ -53,7 +54,13 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, er
 		return nil, fmt.Errorf("parse lark config: %w", err)
 	}
 
-	client := lark.NewClient(cfg.AppID, cfg.AppSecret)
+	larkLogger := logs.NewLarkLogger(logs.DefaultLogger())
+	larkLogLevel := larkcore.LogLevelInfo
+
+	client := lark.NewClient(cfg.AppID, cfg.AppSecret,
+		lark.WithLogger(larkLogger),
+		lark.WithLogLevel(larkLogLevel),
+	)
 
 	l := &Lark{
 		id:     chanId,
@@ -63,12 +70,18 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, er
 
 	// Both modes share the same event dispatcher and message handler.
 	eventDispatcher := dispatcher.NewEventDispatcher(cfg.VerificationToken, cfg.EncryptKey)
+	eventDispatcher.InitConfig(
+		larkevent.WithLogger(larkLogger),
+		larkevent.WithLogLevel(larkLogLevel),
+	)
 	eventDispatcher.OnP2MessageReceiveV1(l.onMessageReceive)
 
-	switch cfg.Mode {
+	switch strings.ToLower(cfg.Mode) {
 	case "ws":
 		l.wsClient = larkws.NewClient(cfg.AppID, cfg.AppSecret,
 			larkws.WithEventHandler(eventDispatcher),
+			larkws.WithLogger(larkLogger),
+			larkws.WithLogLevel(larkLogLevel),
 		)
 	default: // "webhook"
 		l.webhookPath = fmt.Sprintf("/api/v1/lark/%s/event", chanId)
