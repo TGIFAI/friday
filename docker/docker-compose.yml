@@ -1,0 +1,17 @@
+services:
+  friday:
+    build:
+      context: ..
+      args:
+        VERSION: ${VERSION:-dev}
+    container_name: friday
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    volumes:
+      - friday-home:/root/.friday
+    environment:
+      - TZ=Asia/Shanghai
+
+volumes:
+  friday-home:

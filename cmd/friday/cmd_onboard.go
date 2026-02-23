@@ -444,10 +444,61 @@ func initGlobalSkills() error {
 		return cmd.Run()
 	}
 
+	// try bundled skills next to binary first (release download scenario)
+	if err := copyBundledSkills(dir); err == nil {
+		return nil
+	}
+
+	// fallback: git clone
 	cmd := exec.Command("git", "clone", "--depth", "1", consts.SkillsRepoURL, dir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// copyBundledSkills copies the skills/ directory bundled alongside the binary
+// (from a release tar.gz) into the target directory.
+func copyBundledSkills(dst string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return err
+	}
+	bundled := filepath.Join(filepath.Dir(exe), consts.SkillsDirName)
+
+	info, err := os.Stat(bundled)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("bundled skills not found")
+	}
+
+	return copyDir(bundled, dst)
+}
+
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
 }
 
 func writeConfigDirect(path string, cfg *config.Config) error {
