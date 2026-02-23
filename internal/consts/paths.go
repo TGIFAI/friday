@@ -14,6 +14,9 @@ const (
 )
 
 func FridayHomeDir() string {
+	if env := os.Getenv("FRIDAY_HOME"); env != "" {
+		return env
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, FridayDirName)
 }

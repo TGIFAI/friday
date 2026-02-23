@@ -1,0 +1,45 @@
+name: Friday
+options:
+  bundleIdPrefix: sh.tgif
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+packages:
+  Yams:
+    url: https://github.com/jpsim/Yams.git
+    from: "5.0.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    PRODUCT_BUNDLE_IDENTIFIER: sh.tgif.friday
+    INFOPLIST_FILE: Info.plist
+    CODE_SIGN_ENTITLEMENTS: Friday.entitlements
+    CODE_SIGN_IDENTITY: "-"
+
+targets:
+  Friday:
+    type: application
+    platform: macOS
+    sources:
+      - Sources
+    resources:
+      - path: Assets.xcassets
+      - path: Resources
+        optional: true
+        buildPhase: resources
+    dependencies:
+      - package: Yams
+        product: Yams
+    settings:
+      base:
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+    preBuildScripts:
+      - name: "Verify Go Binary"
+        shell: /bin/bash
+        script: |
+          if [ ! -f "${SRCROOT}/Resources/friday-core" ]; then
+            echo "warning: friday-core binary not found in Resources/ — build will succeed but app cannot launch the runtime."
+          fi

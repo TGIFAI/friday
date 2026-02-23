@@ -220,44 +220,107 @@ func (gw *Gateway) initChannels(ctx context.Context, channels map[string]config.
 			continue
 		}
 
-		ch, err := newChannel(id, cfg)
-		if err != nil {
-			logs.CtxError(ctx, "[gateway] create channel #%s error: %v", id, err)
-			return fmt.Errorf("create channel %s: %w", id, err)
+		if err := gw.registerChannel(ctx, id, cfg); err != nil {
+			return err
 		}
-
-		// If the channel declares HTTP routes, register them on the shared server.
-		for _, r := range ch.Routes() {
-			switch strings.ToUpper(r.Method) {
-			case "GET":
-				gw.httpServer.GET(r.Path, r.Handler)
-			case "POST":
-				gw.httpServer.POST(r.Path, r.Handler)
-			case "PUT":
-				gw.httpServer.PUT(r.Path, r.Handler)
-			case "DELETE":
-				gw.httpServer.DELETE(r.Path, r.Handler)
-			default:
-				return fmt.Errorf("unsupported HTTP method %s for route %s", r.Method, r.Path)
-			}
-			logs.CtxInfo(ctx, "[gateway] registered route: %s %s (channel #%s)", r.Method, r.Path, id)
-		}
-
-		if err = ch.RegisterMessageHandler(gw.Enqueue); err != nil {
-			return fmt.Errorf("register handler for channel %s: %w", id, err)
-		}
-
-		if err = channel.Register(ch); err != nil {
-			return fmt.Errorf("register channel %s: %w", id, err)
-		}
-
-		go func(id string, ch channel.Channel) {
-			logs.CtxInfo(ctx, "[gateway] starting channel #%s (%s)", id, ch.Type())
-			if err := ch.Start(ctx); err != nil {
-				logs.CtxError(ctx, "[gateway] channel #%s stopped with error: %v", id, err)
-			}
-		}(id, ch)
 	}
+
+	// In macOS app runtime, auto-inject a built-in HTTP channel for the app.
+	if consts.IsMacOSApp() {
+		if err := gw.injectMacOSChannel(ctx); err != nil {
+			return fmt.Errorf("inject macos channel: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// registerChannel creates, registers, and starts a single channel.
+func (gw *Gateway) registerChannel(ctx context.Context, id string, cfg config.ChannelConfig) error {
+	ch, err := newChannel(id, cfg)
+	if err != nil {
+		logs.CtxError(ctx, "[gateway] create channel #%s error: %v", id, err)
+		return fmt.Errorf("create channel %s: %w", id, err)
+	}
+
+	// If the channel declares HTTP routes, register them on the shared server.
+	for _, r := range ch.Routes() {
+		switch strings.ToUpper(r.Method) {
+		case "GET":
+			gw.httpServer.GET(r.Path, r.Handler)
+		case "POST":
+			gw.httpServer.POST(r.Path, r.Handler)
+		case "PUT":
+			gw.httpServer.PUT(r.Path, r.Handler)
+		case "DELETE":
+			gw.httpServer.DELETE(r.Path, r.Handler)
+		default:
+			return fmt.Errorf("unsupported HTTP method %s for route %s", r.Method, r.Path)
+		}
+		logs.CtxInfo(ctx, "[gateway] registered route: %s %s (channel #%s)", r.Method, r.Path, id)
+	}
+
+	if err = ch.RegisterMessageHandler(gw.Enqueue); err != nil {
+		return fmt.Errorf("register handler for channel %s: %w", id, err)
+	}
+
+	if err = channel.Register(ch); err != nil {
+		return fmt.Errorf("register channel %s: %w", id, err)
+	}
+
+	go func(id string, ch channel.Channel) {
+		logs.CtxInfo(ctx, "[gateway] starting channel #%s (%s)", id, ch.Type())
+		if err := ch.Start(ctx); err != nil {
+			logs.CtxError(ctx, "[gateway] channel #%s stopped with error: %v", id, err)
+		}
+	}(id, ch)
+
+	return nil
+}
+
+// injectMacOSChannel creates a built-in HTTP channel for the macOS app wrapper.
+// The channel is registered in memory only — config.yaml is not modified.
+// The auth token is shared via a file in FRIDAY_HOME.
+func (gw *Gateway) injectMacOSChannel(ctx context.Context) error {
+	token, err := consts.ReadOrCreateMacOSToken()
+	if err != nil {
+		return fmt.Errorf("read/create macos token: %w", err)
+	}
+
+	chCfg := config.ChannelConfig{
+		Type:    string(channel.HTTP),
+		Enabled: true,
+		Config:  map[string]interface{}{"api_key": token},
+	}
+
+	if err := gw.registerChannel(ctx, consts.MacOSAppChannelID, chCfg); err != nil {
+		return err
+	}
+
+	// Bind the built-in channel to all agents so they can receive messages from the app.
+	cfg, err := config.Get()
+	if err != nil {
+		return fmt.Errorf("get config for macos channel binding: %w", err)
+	}
+	updated := make(map[string]config.AgentConfig, len(cfg.Agents))
+	for id, ag := range cfg.Agents {
+		bound := false
+		for _, ch := range ag.Channels {
+			if ch == consts.MacOSAppChannelID {
+				bound = true
+				break
+			}
+		}
+		if !bound {
+			ag.Channels = append(ag.Channels, consts.MacOSAppChannelID)
+		}
+		updated[id] = ag
+	}
+	if err := config.Apply("agents", &updated); err != nil {
+		logs.CtxWarn(ctx, "[gateway] failed to bind macos channel to agents: %v", err)
+	}
+
+	logs.CtxInfo(ctx, "[gateway] injected built-in macOS app channel #%s", consts.MacOSAppChannelID)
 	return nil
 }
 
