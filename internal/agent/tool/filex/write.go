@@ -37,7 +37,7 @@ func (t *WriteTool) Execute(ctx context.Context, args map[string]interface{}) (i
 	path, _ := args["path"].(string)
 	content, ok := args["content"].(string)
 	if !ok {
-		return nil, fmt.Errorf("content is required")
+		return nil, fmt.Errorf("write: missing required parameter 'content'")
 	}
 	absPath, err := t.guard.resolvePath(path)
 	if err != nil {
