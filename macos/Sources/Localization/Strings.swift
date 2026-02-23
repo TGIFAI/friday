@@ -30,14 +30,15 @@ enum L10n {
     static var configOpenExternal: String { localized("Open in Editor", "用编辑器打开") }
     static var configUnsaved: String { localized("Unsaved", "未保存") }
     static var configNotFound: String { localized("config.yaml not found", "未找到 config.yaml") }
-    static var viewConfig: String { localized("Config...", "配置编辑...") }
+    static var viewConfig: String { localized("Config", "配置编辑") }
     static var configGuide: String { localized("Config Guide", "配置指南") }
     static var configSaveRestart: String { localized("Save & Restart", "保存并重启") }
 
     // MARK: - Log Viewer
 
-    static var logViewer: String { localized("Log Viewer", "日志查看器") }
-    static var viewLogs: String { localized("Log Viewer...", "日志查看器...") }
+    static var runtimeLogs: String { localized("Runtime Logs", "运行日志") }
+    static var logViewer: String { localized("Log Viewer", "日志查看") }
+    static var viewLogs: String { localized("Log Viewer", "日志查看") }
     static var logSearch: String { localized("Search...", "搜索...") }
     static var logAutoScroll: String { localized("Auto-scroll", "自动滚动") }
     static var logCopy: String { localized("Copy All", "全部复制") }
