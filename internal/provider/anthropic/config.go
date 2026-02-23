@@ -35,7 +35,7 @@ func (c *Config) Validate() error {
 		c.MaxTokens = 4096
 	}
 	if c.Timeout == 0 {
-		c.Timeout = 60 * time.Second
+		c.Timeout = 300 * time.Second
 	}
 	if c.MaxRetries < 0 {
 		c.MaxRetries = 3
@@ -81,7 +81,7 @@ func ParseConfig(id string, configMap map[string]interface{}) (*Config, error) {
 	if timeout := gconv.To[int](configMap["timeout"]); timeout > 0 {
 		config.Timeout = time.Duration(timeout) * time.Second
 	} else {
-		config.Timeout = 60 * time.Second
+		config.Timeout = 300 * time.Second
 	}
 
 	if maxRetries := gconv.To[int](configMap["max_retries"]); maxRetries > 0 {

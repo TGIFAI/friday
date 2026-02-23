@@ -2,17 +2,19 @@
 
 ## Quick Start
 
-1. Build and start:
+### 1. Build the image
 
 ```bash
 cd docker
-docker compose up -d
+docker compose build
 ```
 
-2. Run the interactive setup wizard to initialize config:
+### 2. Run the setup wizard
+
+The container needs a config before it can start. Use a temporary container to run onboard:
 
 ```bash
-docker compose exec -it friday friday onboard
+docker compose run --rm friday onboard
 ```
 
 The wizard walks you through:
@@ -23,15 +25,15 @@ The wizard walks you through:
 - Choosing a channel (Telegram, Lark, HTTP)
 - Enabling auto-update
 
-Once complete, config is written to `/root/.friday/config.yaml` inside the container (persisted via the `friday-home` volume).
+Config is written to the `friday-home` volume at `/root/.friday/config.yaml`.
 
-3. Restart to pick up the new config:
+### 3. Start the service
 
 ```bash
-docker compose restart
+docker compose up -d
 ```
 
-4. Check logs:
+### 4. Check logs
 
 ```bash
 docker compose logs -f
@@ -39,7 +41,7 @@ docker compose logs -f
 
 ## Using an Existing Config
 
-If you already have a `config.yaml`, mount it directly instead of running onboard:
+Skip onboard entirely by mounting your own config:
 
 ```yaml
 # docker-compose.yml
@@ -50,9 +52,17 @@ services:
       - ./config.yaml:/root/.friday/config.yaml
 ```
 
-## Shell Access
+## Re-running Onboard
 
-The container ships with fish as the default shell:
+To reconfigure at any time, stop the service and run onboard again:
+
+```bash
+docker compose down
+docker compose run --rm friday onboard
+docker compose up -d
+```
+
+## Shell Access
 
 ```bash
 docker compose exec -it friday fish
@@ -60,7 +70,7 @@ docker compose exec -it friday fish
 
 ## Data Persistence
 
-All friday data lives under `/root/.friday` inside the container, mapped to the `friday-home` named volume:
+All friday data lives under `/root/.friday`, persisted in the `friday-home` named volume:
 
 ```
 /root/.friday/

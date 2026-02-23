@@ -31,7 +31,7 @@ func (c *Config) Validate() error {
 		c.DefaultModel = "gpt-4"
 	}
 	if c.Timeout == 0 {
-		c.Timeout = 60 * time.Second
+		c.Timeout = 300 * time.Second
 	}
 	if c.MaxRetries < 0 {
 		c.MaxRetries = 3

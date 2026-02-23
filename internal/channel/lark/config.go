@@ -3,6 +3,7 @@ package lark
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/bytedance/gg/gconv"
 
@@ -18,6 +19,7 @@ type Config struct {
 }
 
 func (c *Config) Validate() error {
+	c.Mode = strings.ToLower(c.Mode)
 	if c.AppID == "" {
 		return errors.New("lark app_id cannot be empty")
 	}
@@ -50,7 +52,7 @@ func ParseConfig(configMap map[string]interface{}) (*Config, error) {
 		return nil, errors.New("lark app_secret is required")
 	}
 
-	config.Mode = gconv.To[string](configMap["mode"])
+	config.Mode = strings.ToLower(gconv.To[string](configMap["mode"]))
 	if config.Mode == "" {
 		config.Mode = "webhook"
 	}

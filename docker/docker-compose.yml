@@ -12,6 +12,11 @@ services:
       - friday-home:/root/.friday
     environment:
       - TZ=Asia/Shanghai
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "3"
+        max-size: 30m
 
 volumes:
   friday-home:

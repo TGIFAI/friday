@@ -49,7 +49,7 @@ func (t *MessageTool) Execute(ctx context.Context, args map[string]interface{}) 
 	}
 	content := getStringArg(args, "content")
 	if content == "" {
-		return nil, fmt.Errorf("content is required")
+		return nil, fmt.Errorf("send_message: missing required parameter 'content'")
 	}
 	ch, err := channel.Get(chanID)
 	if err != nil {
