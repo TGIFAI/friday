@@ -88,6 +88,10 @@ jobs:
           files: ${{ env.BINARY_PATH }}
           args: --best --lzma
 
+      - name: Prepare macOS core binary
+        if: matrix.goos == 'darwin'
+        run: cp "${{ env.BINARY_PATH }}" "friday-core-${{ matrix.goarch }}"
+
       - name: Package archive
         shell: bash
         env:
@@ -109,10 +113,6 @@ jobs:
           path: output/*.tar.gz
           if-no-files-found: error
           retention-days: 7
-
-      - name: Prepare macOS core binary
-        if: matrix.goos == 'darwin'
-        run: cp "${{ env.BINARY_PATH }}" "friday-core-${{ matrix.goarch }}"
 
       - name: Upload macOS core binary
         if: matrix.goos == 'darwin'
