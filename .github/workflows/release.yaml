@@ -176,8 +176,12 @@ jobs:
         run: cd macos && xcodegen generate --quiet
 
       - name: Build app
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          # Strip leading 'v' for MARKETING_VERSION (e.g. v0.1.1 -> 0.1.1)
+          MKT_VERSION="${VERSION#v}"
           cd macos
           xcodebuild \
             -project Friday.xcodeproj \
@@ -186,6 +190,7 @@ jobs:
             -derivedDataPath build/DerivedData \
             CODE_SIGN_IDENTITY="-" \
             DEVELOPMENT_TEAM="" \
+            MARKETING_VERSION="${MKT_VERSION}" \
             2>&1 | tee /tmp/xcodebuild.log | tail -30
           # pipefail ensures xcodebuild failure propagates
 

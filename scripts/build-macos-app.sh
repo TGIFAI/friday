@@ -52,6 +52,7 @@ xcodegen generate --quiet
 
 # 6. Build app
 echo "==> Building Friday.app"
+MKT_VERSION="${VERSION#v}"
 xcodebuild \
   -project Friday.xcodeproj \
   -scheme Friday \
@@ -59,6 +60,7 @@ xcodebuild \
   -derivedDataPath build/DerivedData \
   CODE_SIGN_IDENTITY="-" \
   DEVELOPMENT_TEAM="" \
+  MARKETING_VERSION="${MKT_VERSION}" \
   2>&1 | tail -5
 
 # 7. Copy result

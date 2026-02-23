@@ -55,7 +55,7 @@ struct MenuBarView: View {
                     Text(L10n.appName)
                         .font(FridayFont.title)
                         .foregroundStyle(.primary)
-                    Text("v0.1.0")
+                    Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0")")
                         .font(FridayFont.badge)
                         .foregroundStyle(.white.opacity(0.7))
                         .padding(.horizontal, 6)

@@ -19,6 +19,7 @@ settings:
     CODE_SIGN_ENTITLEMENTS: Friday.entitlements
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: "YES"
+    MARKETING_VERSION: "0.1.0"
 
 targets:
   Friday:
@@ -28,9 +29,6 @@ targets:
       - Sources
     resources:
       - path: Assets.xcassets
-      - path: Resources
-        optional: true
-        buildPhase: resources
     dependencies:
       - package: Yams
         product: Yams
@@ -43,4 +41,21 @@ targets:
         script: |
           if [ ! -f "${SRCROOT}/Resources/friday-core" ]; then
             echo "warning: friday-core binary not found in Resources/ — build will succeed but app cannot launch the runtime."
+          fi
+    postBuildScripts:
+      - name: "Bundle Resources"
+        shell: /bin/bash
+        script: |
+          RESOURCES_SRC="${SRCROOT}/Resources"
+          RESOURCES_DST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources"
+          mkdir -p "${RESOURCES_DST}"
+          if [ -f "${RESOURCES_SRC}/friday-core" ]; then
+            cp "${RESOURCES_SRC}/friday-core" "${RESOURCES_DST}/friday-core"
+            chmod +x "${RESOURCES_DST}/friday-core"
+            echo "Bundled friday-core ($(du -h "${RESOURCES_DST}/friday-core" | cut -f1))"
+          fi
+          if [ -d "${RESOURCES_SRC}/skills" ]; then
+            rm -rf "${RESOURCES_DST}/skills"
+            cp -r "${RESOURCES_SRC}/skills" "${RESOURCES_DST}/skills"
+            echo "Bundled skills"
           fi
