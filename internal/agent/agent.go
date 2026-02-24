@@ -74,8 +74,8 @@ func (ag *Agent) Init(_ context.Context) error {
 
 	allowedPaths := []string{ag.workspace}
 	// Merge extra allowed paths from macOS sandbox bookmarks (colon-separated).
-	if extra := os.Getenv("FRIDAY_ALLOWED_PATHS"); extra != "" {
-		for _, p := range strings.Split(extra, ":") {
+	if paths := os.Getenv("FRIDAY_ALLOWED_PATHS"); paths != "" {
+		for _, p := range strings.Split(paths, ":") {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				allowedPaths = append(allowedPaths, p)
