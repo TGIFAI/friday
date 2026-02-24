@@ -113,7 +113,7 @@ func (l *Lark) Type() channel.Type {
 // assuming success. The Lark SDK's Start() blocks forever on success (empty
 // select{}) and only returns on connection failure, so a timeout firing
 // without an error means the connection is established.
-const wsConnectTimeout = 30 * time.Second
+const wsConnectTimeout = 10 * time.Second
 
 // Start blocks until the context is canceled. In webhook mode the route is
 // already registered so we just wait. In ws mode we start the WebSocket client.
