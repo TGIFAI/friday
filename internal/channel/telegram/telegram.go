@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bytedance/sonic"
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 
@@ -46,6 +48,10 @@ type Telegram struct {
 	mu          sync.RWMutex
 	ctx         context.Context
 	cancel      context.CancelFunc
+
+	// webhook mode
+	webhookPath    string          // empty in polling mode
+	webhookHandler app.HandlerFunc // nil in polling mode
 }
 
 func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, error) {
@@ -67,6 +73,9 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, er
 	opts := []bot.Option{
 		bot.WithDefaultHandler(tg.handleUpdate),
 	}
+	if cfg.SecretToken != "" {
+		opts = append(opts, bot.WithWebhookSecretToken(cfg.SecretToken))
+	}
 
 	tgBot, err := bot.New(cfg.Token, opts...)
 	if err != nil {
@@ -85,6 +94,12 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, er
 		logs.Info("[channel:telegram] bot identity: @%s (id=%d)", me.Username, me.ID)
 	}
 
+	// Set up webhook handler when in webhook mode.
+	if cfg.Mode == "webhook" {
+		tg.webhookPath = fmt.Sprintf("/api/v1/telegram/%s/webhook", chanId)
+		tg.webhookHandler = tg.newWebhookHandler()
+	}
+
 	return tg, nil
 }
 
@@ -96,17 +111,21 @@ func (c *Telegram) Type() channel.Type {
 	return channel.Telegram
 }
 
+// Routes implements channel.Channel. In webhook mode it returns the route
+// for the gateway to register; in polling mode no routes are needed.
 func (c *Telegram) Routes() []channel.Route {
+	if c.webhookHandler == nil {
+		return nil
+	}
 	return []channel.Route{
-		//{Method: "POST", Path: l.webhookPath, Handler: l.eventHandler},
+		{Method: "POST", Path: c.webhookPath, Handler: c.webhookHandler},
 	}
 }
 
 func (c *Telegram) Start(ctx context.Context) error {
-	if c.config.WebhookURL != "" && c.config.WebhookPort > 0 {
+	if c.config.Mode == "webhook" {
 		return c.startWebhook(ctx)
 	}
-
 	return c.startPolling(ctx)
 }
 
@@ -116,24 +135,66 @@ func (c *Telegram) startPolling(ctx context.Context) error {
 }
 
 func (c *Telegram) startWebhook(ctx context.Context) error {
-	logs.CtxInfo(ctx, "Starting Telegram bot in webhook mode: %s", c.config.WebhookURL)
+	webhookURL := c.config.WebhookURL + c.webhookPath
+	logs.CtxInfo(ctx, "[channel:telegram] setting webhook: %s", webhookURL)
 
-	_, err := c.bot.SetWebhook(ctx, &bot.SetWebhookParams{
-		URL: c.config.WebhookURL,
-	})
+	params := &bot.SetWebhookParams{URL: webhookURL}
+	if c.config.SecretToken != "" {
+		params.SecretToken = c.config.SecretToken
+	}
+
+	_, err := c.bot.SetWebhook(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to set webhook: %w", err)
 	}
 
-	return errors.New("webhook mode not yet fully implemented")
+	logs.CtxInfo(ctx, "[channel:telegram] webhook mode started, waiting for updates")
+	// Block until context is done; incoming updates arrive via the HTTP route.
+	<-ctx.Done()
+	return nil
 }
 
 func (c *Telegram) Stop(ctx context.Context) error {
 	c.cancel()
+	// Clean up webhook registration when shutting down.
+	if c.config.Mode == "webhook" && c.bot != nil {
+		_, _ = c.bot.DeleteWebhook(ctx, &bot.DeleteWebhookParams{})
+	}
 	if c.bot != nil {
 		c.bot.Close(ctx)
 	}
 	return nil
+}
+
+// newWebhookHandler returns a Hertz handler that receives Telegram webhook
+// updates and feeds them directly to the bot's ProcessUpdate pipeline.
+func (c *Telegram) newWebhookHandler() app.HandlerFunc {
+	return func(ctx context.Context, rc *app.RequestContext) {
+		// Verify secret token if configured.
+		if c.config.SecretToken != "" {
+			token := string(rc.GetHeader("X-Telegram-Bot-Api-Secret-Token"))
+			if token != c.config.SecretToken {
+				rc.SetStatusCode(401)
+				return
+			}
+		}
+
+		body := rc.GetRequest().Body()
+		if len(body) == 0 {
+			rc.SetStatusCode(400)
+			return
+		}
+
+		var update models.Update
+		if err := sonic.Unmarshal(body, &update); err != nil {
+			logs.CtxWarn(ctx, "[channel:telegram] webhook decode error: %v", err)
+			rc.SetStatusCode(400)
+			return
+		}
+
+		c.bot.ProcessUpdate(ctx, &update)
+		rc.SetStatusCode(200)
+	}
 }
 
 func (c *Telegram) SendMessage(ctx context.Context, chatID string, content string) error {

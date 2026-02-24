@@ -84,7 +84,7 @@ func NewChannel(chanId string, chCfg *config.ChannelConfig) (channel.Channel, er
 			larkws.WithLogLevel(larkLogLevel),
 		)
 	default: // "webhook"
-		l.webhookPath = fmt.Sprintf("/api/v1/lark/%s/event", chanId)
+		l.webhookPath = fmt.Sprintf("/api/v1/lark/%s/webhook", chanId)
 		l.eventHandler = l.newEventHandler(eventDispatcher)
 	}
 
@@ -109,23 +109,60 @@ func (l *Lark) Type() channel.Type {
 	return channel.Lark
 }
 
+// wsConnectTimeout is how long we wait for the initial WS connection before
+// assuming success. The Lark SDK's Start() blocks forever on success (empty
+// select{}) and only returns on connection failure, so a timeout firing
+// without an error means the connection is established.
+const wsConnectTimeout = 10 * time.Second
+
 // Start blocks until the context is canceled. In webhook mode the route is
 // already registered so we just wait. In ws mode we start the WebSocket client.
 func (l *Lark) Start(ctx context.Context) error {
 	if l.wsClient != nil {
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- l.wsClient.Start(ctx)
-		}()
-		select {
-		case err := <-errCh:
-			return err
-		case <-ctx.Done():
-			return nil
-		}
+		return l.startWS(ctx)
 	}
+	// webhook mode — routes are already registered; wait for shutdown.
 	<-ctx.Done()
 	return nil
+}
+
+func (l *Lark) startWS(ctx context.Context) error {
+	errCh := make(chan error, 1)
+	go func() {
+		// NOTE: The Lark SDK's Start() blocks forever on success via an
+		// empty `select{}` that does NOT check ctx.Done(). It only returns
+		// when connect() (or reconnect()) fails. This goroutine will leak
+		// on context cancellation — acceptable since the process is shutting
+		// down at that point.
+		errCh <- l.wsClient.Start(ctx)
+	}()
+
+	// The SDK's connect() does a synchronous HTTP request followed by a
+	// gorilla/websocket Dial (which has NO context support). If the Lark
+	// endpoint is unreachable the dial can hang indefinitely. Use a timer
+	// to detect successful connection vs a hung dial.
+	timer := time.NewTimer(wsConnectTimeout)
+	defer timer.Stop()
+
+	select {
+	case err := <-errCh:
+		return fmt.Errorf("lark ws connect: %w", err)
+	case <-timer.C:
+		// No error within timeout — connection succeeded and the SDK is
+		// now in its blocking select{} loop, actively receiving messages.
+		logs.CtxInfo(ctx, "[channel:lark] ws connected")
+	case <-ctx.Done():
+		return nil
+	}
+
+	// Stay alive: surface any late errors from the SDK (e.g. reconnect
+	// failure after an unexpected disconnect), or return cleanly on shutdown.
+	select {
+	case err := <-errCh:
+		return fmt.Errorf("lark ws disconnected: %w", err)
+	case <-ctx.Done():
+		return nil
+	}
 }
 
 func (l *Lark) Stop(_ context.Context) error {
@@ -274,10 +311,23 @@ func (l *Lark) RegisterMessageHandler(handler func(ctx context.Context, msg *cha
 }
 
 // onMessageReceive is the SDK callback for im.message.receive_v1.
-func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
+// It dispatches to handleMessage in a goroutine to avoid blocking the SDK's
+// WebSocket receive loop. Blocking here would stall ping/pong frames and
+// prevent subsequent messages from being processed, which is the root cause
+// of the "Lark WS gets stuck" symptom.
+func (l *Lark) onMessageReceive(_ context.Context, event *larkim.P2MessageReceiveV1) error {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		l.handleMessage(ctx, event)
+	}()
+	return nil
+}
+
+func (l *Lark) handleMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) {
 	msg := event.Event.Message
 	if msg == nil || msg.MessageId == nil {
-		return nil
+		return
 	}
 
 	msgType := ""
@@ -293,7 +343,7 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 		text, err := extractText(msg.Content)
 		if err != nil {
 			logs.CtxWarn(ctx, "[channel:lark] failed to extract text: %v", err)
-			return nil
+			return
 		}
 		// Strip @mention placeholders (e.g. @_user_1) from group messages.
 		content = stripMentionPlaceholders(text, msg.Mentions)
@@ -302,7 +352,7 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 		imageKey, err := extractKey(msg.Content, "image_key")
 		if err != nil {
 			logs.CtxWarn(ctx, "[channel:lark] failed to extract image_key: %v", err)
-			return nil
+			return
 		}
 		att, err := l.downloadResource(ctx, *msg.MessageId, imageKey, "image", channel.AttachmentImage, "image/png")
 		if err != nil {
@@ -315,7 +365,7 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 		fileKey, err := extractKey(msg.Content, "file_key")
 		if err != nil {
 			logs.CtxWarn(ctx, "[channel:lark] failed to extract audio file_key: %v", err)
-			return nil
+			return
 		}
 		att, err := l.downloadResource(ctx, *msg.MessageId, fileKey, "file", channel.AttachmentVoice, "audio/ogg")
 		if err != nil {
@@ -326,11 +376,11 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 
 	default:
 		logs.CtxDebug(ctx, "[channel:lark] ignoring message type: %s", msgType)
-		return nil
+		return
 	}
 
 	if content == "" && len(attachments) == 0 {
-		return nil
+		return
 	}
 
 	var userID string
@@ -371,7 +421,6 @@ func (l *Lark) onMessageReceive(ctx context.Context, event *larkim.P2MessageRece
 			logs.CtxError(ctx, "[channel:lark] error handling message: %v", err)
 		}
 	}
-	return nil
 }
 
 // downloadResource downloads a message resource (image or file) from Lark.
