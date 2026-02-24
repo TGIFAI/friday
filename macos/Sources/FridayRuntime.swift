@@ -111,20 +111,21 @@ final class FridayRuntime: ObservableObject {
     }
 
     private func checkHealth() async {
+        // Normalize 0.0.0.0 → 127.0.0.1 so URLSession can connect (ATS only
+        // exempts localhost/127.0.0.1 for plain HTTP).
         let addr = configManager.bindAddress
+            .replacingOccurrences(of: "0.0.0.0", with: "127.0.0.1")
         guard let url = URL(string: "http://\(addr)/health") else { return }
 
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             if let body = String(data: data, encoding: .utf8), body.contains("ok") {
-                await MainActor.run {
-                    if self.statusText != L10n.running {
-                        self.statusText = L10n.running
-                    }
+                if self.statusText != L10n.running {
+                    self.statusText = L10n.running
                 }
             }
         } catch {
-            // Health check failed — process might still be starting.
+            appendLog("[app] health check failed: \(error.localizedDescription)")
         }
     }
 

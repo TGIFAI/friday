@@ -55,7 +55,7 @@ enum L10n {
 
     // MARK: - Permissions
 
-    static var permissions: String { localized("Permissions...", "权限管理...") }
+    static var permissions: String { localized("Permissions", "权限管理") }
     static var permDirectories: String { localized("Directory Access", "目录访问") }
     static var permDirectoriesDesc: String {
         localized(
