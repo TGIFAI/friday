@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -202,16 +203,26 @@ func runExecCommand(
 	return stdoutBuf.Bytes(), stderrBuf.Bytes(), 0, false, trunc, nil
 }
 
+// defaultShell returns the user's default shell from the SHELL environment
+// variable, falling back to /bin/sh if unset. Using the user's shell ensures
+// that PATH and other profile-sourced variables are available.
+func defaultShell() string {
+	if s := os.Getenv("SHELL"); s != "" {
+		return s
+	}
+	return "sh"
+}
+
 func commandWithContext(ctx context.Context, parsedCmd *parsedCommand) *exec.Cmd {
 	if parsedCmd.useShell {
-		return exec.CommandContext(ctx, "sh", "-c", parsedCmd.display)
+		return exec.CommandContext(ctx, defaultShell(), "-l", "-c", parsedCmd.display)
 	}
 	return exec.CommandContext(ctx, parsedCmd.program, parsedCmd.argv...)
 }
 
 func commandNoContext(parsedCmd *parsedCommand) *exec.Cmd {
 	if parsedCmd.useShell {
-		return exec.Command("sh", "-c", parsedCmd.display)
+		return exec.Command(defaultShell(), "-l", "-c", parsedCmd.display)
 	}
 	return exec.Command(parsedCmd.program, parsedCmd.argv...)
 }

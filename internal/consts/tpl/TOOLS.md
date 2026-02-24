@@ -6,29 +6,34 @@ This file documents the tools currently registered by the Agent and how to call 
 
 1. Use `list` before `read` to discover the correct path.
 2. Prefer `edit` for minimal changes; use `write` for full overwrite.
-3. Use `exec` for short synchronous commands.
-4. Use `process` for long-running background jobs.
+3. Use `exec` for short synchronous commands (max 600s).
+4. Use `process` for long-running background jobs (max 16 concurrent).
 5. Use `cronx` to schedule recurring or one-shot tasks; prefer `schedule_type=every` for simple intervals.
 6. Use `web_search` + `web_fetch` for web research; use `render_js` only when direct fetch fails on JS-heavy pages.
-7. Use exact parameter names when possible.
-8. Paths can be relative to workspace or absolute. Out-of-scope paths fail with `path not allowed`.
+7. Use `http_request` for calling external APIs (REST/JSON); use `web_fetch` for reading web pages.
+8. Use `agent` to delegate complex coding tasks to CLI agents (Claude Code, Codex).
+9. Paths can be relative to workspace or absolute. Out-of-scope paths fail with `path not allowed`.
 
 ## Tool Index
 
-- `read`: read file content
-- `write`: write or overwrite file content
-- `edit`: minimal file updates (text or line-range replacement)
-- `list`: list directory entries
-- `delete`: delete a file
-- `file`: legacy multi-operation file tool (compat only)
-- `exec`: run short commands synchronously
-- `process`: manage background processes (`start/status/log/kill/list`)
-- `message`: send message to a channel/chat
-- `knowledge_search`: search local knowledge base (requires `qmd`)
-- `knowledge_get`: retrieve full document from knowledge base (requires `qmd`)
-- `cronx`: manage scheduled cron jobs (`create/list/delete/update`)
-- `web_fetch`: fetch a URL and extract content as markdown
-- `web_search`: search the web via Brave Search API (requires `BRAVE_API_KEY`)
+| Tool | Description |
+|------|-------------|
+| `read` | Read file content |
+| `write` | Write or overwrite file content |
+| `edit` | Minimal file updates (text or line-range replacement) |
+| `list` | List directory entries |
+| `delete` | Delete a file |
+| `file` | Legacy multi-operation file tool (compat only) |
+| `exec` | Run short commands synchronously |
+| `process` | Manage background processes (`start/status/log/kill/list`) |
+| `message` | Send message to a channel/chat |
+| `knowledge_search` | Search local knowledge base (requires `qmd`) |
+| `knowledge_get` | Retrieve full document from knowledge base (requires `qmd`) |
+| `cronx` | Manage scheduled cron jobs (`create/list/delete/update`) |
+| `web_fetch` | Fetch a URL and extract content as markdown |
+| `web_search` | Search the web via Brave Search API (requires `BRAVE_API_KEY`) |
+| `http_request` | Make HTTP requests to external APIs |
+| `agent` | Delegate coding tasks to CLI agents (Claude Code, Codex) |
 
 ---
 
@@ -54,7 +59,7 @@ Example:
 
 ## 2) `write`
 
-Purpose: create or overwrite a file.
+Purpose: create or overwrite a file. Creates parent directories automatically.
 
 Parameters:
 - `path` (string, required)
@@ -97,7 +102,9 @@ Success response:
 
 Common failures:
 - `old_text not found in file`
+- `old_text must not be empty when provided`
 - `line range out of bounds`
+- `end_line must be >= start_line`
 - `edit made no changes`
 
 Example (text replacement):
@@ -167,6 +174,7 @@ Parameters:
 
 Notes:
 - If `operation` is omitted, behavior is inferred and may be unstable.
+- `list_dir` response includes `mtime` (Unix timestamp) per entry.
 
 Example:
 ```json
@@ -181,22 +189,24 @@ Purpose: run short commands synchronously.
 
 Parameters:
 - `command` (required):
-- string, for example `"go test ./..."`
-- or string array, for example `["/usr/local/go/bin/go","test","./..."]`
+- string, for example `"go test ./..."` (runs via `sh -c`)
+- or string array, for example `["/usr/local/go/bin/go","test","./..."]` (exec form, no shell)
 - `working_dir` (string, optional)
-- `timeout` (number, optional, seconds)
+- `timeout` (number, optional, seconds, default 60, max 600)
 
 Response:
 - `success` (bool), true only when `exit_code == 0`
 - `command` (string)
 - `exit_code` (number)
-- `stdout` (string)
-- `stderr` (string)
+- `stdout` (string, max 1 MiB)
+- `stderr` (string, max 1 MiB)
 - `working_dir` (string)
+- `truncated` (bool, present if output was truncated)
 
 Notes:
 - Non-zero exit is returned as `success=false` with `exit_code`; it is not treated as a tool error.
 - Timeout returns an error: `command timeout after ...`.
+- String commands use `sh -c`; array commands use exec form (no shell interpretation).
 
 Example:
 ```json
@@ -212,13 +222,15 @@ Purpose: manage long-running background processes without blocking the dialog lo
 Common parameter:
 - `action` (required): `start|status|log|kill|list`
 
+Limits: max 16 concurrent active processes. Finished processes are retained for 30 minutes.
+
 ### `action=start`
 Parameters:
 - `command` (required, string or []string)
 - `working_dir` (optional)
 
 Response:
-- `success`, `process_id`, `running`, `command`, `working_dir`, `started_at`
+- `success`, `process_id` (e.g. `"proc-1"`), `running`, `command`, `working_dir`, `started_at`
 
 ### `action=status`
 Parameters:
@@ -233,7 +245,7 @@ Response:
 ### `action=log`
 Parameters:
 - `process_id` (required)
-- `tail` (optional, bytes, default 4096)
+- `tail` (optional, bytes, default 4096, max 1 MiB)
 
 Response:
 - status fields plus `stdout`, `stderr`, `tail`
@@ -324,20 +336,21 @@ Parameters:
 - `enabled` (bool, optional) - defaults to `true`
 
 Response:
-- `success`, `job_id`, `name`, `schedule_type`, `schedule`, `next_run`
+- `success`, `job_id`, `name`, `message`
 
 ### `action=list`
 Parameters: none
 
 Response:
-- array of job snapshots with `job_id`, `name`, `schedule_type`, `schedule`, `enabled`, `next_run`, `prompt` (truncated at 120 chars)
+- `jobs` (array with `job_id`, `name`, `agent_id`, `schedule_type`, `schedule`, `session_target`, `enabled`, `created_at`, `last_run_at`, `next_run_at`, `prompt` (truncated at 120 chars))
+- `count` (number)
 
 ### `action=delete`
 Parameters:
 - `job_id` (string, required)
 
 Response:
-- `success`, `job_id`
+- `success`, `job_id`, `message`
 
 Notes:
 - The built-in heartbeat job cannot be deleted.
@@ -348,10 +361,11 @@ Parameters:
 - any of: `name`, `schedule_type`, `schedule`, `prompt`, `enabled`, `session_target`, `channel_id`, `chat_id`
 
 Response:
-- `success`, `job_id`, plus updated fields
+- `success`, `job_id`, `message`
 
 Notes:
 - The built-in heartbeat job cannot be updated.
+- At least one field must be changed; `no fields to update` error otherwise.
 
 Examples:
 ```json
@@ -400,8 +414,9 @@ Success response:
 - `results` (array of result objects)
 
 Common failures:
-- `qmd query failed: ...`
 - `query is required`
+- `mode must be one of: query, search, vsearch`
+- `qmd query failed: ...`
 
 Example:
 ```json
@@ -426,8 +441,8 @@ Success response:
 - `size` (number)
 
 Common failures:
-- `qmd get failed: ...`
 - `path is required`
+- `qmd get failed: ...`
 
 Example:
 ```json
@@ -527,6 +542,159 @@ Examples:
 
 ---
 
+## 15) `http_request`
+
+Purpose: make an HTTP request to an external API. Use this for REST/JSON API calls; use `web_fetch` for reading web pages.
+
+Parameters:
+- `url` (string, required) - target URL (http or https)
+- `method` (string, required) - `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`
+- `headers` (object, optional) - custom request headers as key-value pairs
+- `body` (string, optional) - request body (typically JSON string)
+- `timeout` (number, optional) - timeout in seconds, default 30, max 120
+
+Notes:
+- If `body` is provided and no `Content-Type` header is set, defaults to `application/json`.
+
+Security:
+- Only `http` and `https` schemes allowed
+- Private/loopback/link-local addresses are blocked (SSRF protection)
+- Redirects capped at 5; redirects to private addresses are blocked
+- Response body capped at 5 MiB
+
+Success response (JSON string):
+- `status` (number) - HTTP response status code
+- `headers` (object) - response headers
+- `body` (string) - response body (max 50000 chars)
+- `length` (number) - length of body returned
+- `truncated` (bool) - whether body was truncated
+
+Common failures:
+- `url is required`
+- `only http and https URLs are allowed`
+- `access to private/internal addresses is not allowed`
+- `unsupported method "..."; allowed: GET, POST, PUT, PATCH, DELETE`
+- `request failed: ...`
+
+Examples:
+```json
+{"method":"GET","url":"https://api.example.com/users/1"}
+```
+
+```json
+{"method":"POST","url":"https://api.example.com/users","headers":{"Authorization":"Bearer token123"},"body":"{\"name\":\"Alice\"}"}
+```
+
+```json
+{"method":"DELETE","url":"https://api.example.com/users/1","timeout":10}
+```
+
+---
+
+## 16) `agent`
+
+Purpose: delegate complex coding tasks to CLI agents (Claude Code or Codex). Supports creating sessions, sending follow-up messages, checking status, and managing session lifecycle.
+
+Common parameter:
+- `action` (required): `create|send|status|list|destroy`
+
+Limits: max 8 concurrent sessions. Sync execution timeout is 600 seconds.
+
+### `action=create`
+Start a new agent session.
+
+Parameters:
+- `backend` (string, required) - `claude-code` or `codex`
+- `prompt` (string, required) - task/instruction for the agent
+- `working_dir` (string, optional) - working directory (defaults to agent workspace)
+- `system_prompt` (string, optional) - additional system prompt
+- `max_turns` (number, optional) - maximum agentic turns (Claude Code only)
+- `async` (bool, optional, default false) - run in background
+
+Response (sync):
+- `session_id` (e.g. `"as-1"`), `backend`, `cli_session_id`, `status` (`"completed"`), `result`
+
+Response (async):
+- `session_id`, `backend`, `status` (`"running"`)
+
+### `action=send`
+Send a follow-up message to an existing session.
+
+Parameters:
+- `session_id` (string, required)
+- `prompt` (string, required) - follow-up message
+- `async` (bool, optional, default false)
+
+Response (sync):
+- `session_id`, `cli_session_id`, `status`, `result`
+
+Response (async):
+- `session_id`, `status` (`"running"`)
+
+### `action=status`
+Check execution status of a session.
+
+Parameters:
+- `session_id` (string, required)
+
+Response:
+- `session_id`, `backend`, `status` (`running|completed|failed`), `created_at`
+- when completed: `cli_session_id`, `result`
+
+### `action=list`
+List all sessions.
+
+Parameters: none
+
+Response:
+- `sessions` (array with `session_id`, `backend`, `status`, `created_at`)
+
+### `action=destroy`
+Terminate and remove a session.
+
+Parameters:
+- `session_id` (string, required)
+
+Response:
+- `success` (bool), `session_id`
+
+Common failures:
+- `backend is required for create action`
+- `prompt is required for create action`
+- `unknown backend: ... (available: claude-code, codex)`
+- `<backend> CLI not found in PATH`
+- `working_dir "..." is outside agent workspace "..."`
+- `max sessions (8) reached, destroy one first`
+- `session ... not found`
+- `session ... has no CLI session ID (was it completed?)`
+
+Examples:
+```json
+{"action":"create","backend":"claude-code","prompt":"Write unit tests for internal/config/validate.go"}
+```
+
+```json
+{"action":"create","backend":"codex","prompt":"Refactor the error handling in cmd/serve.go","async":true}
+```
+
+```json
+{"action":"send","session_id":"as-1","prompt":"Also add a benchmark test"}
+```
+
+```json
+{"action":"status","session_id":"as-1"}
+```
+
+```json
+{"action":"list"}
+```
+
+```json
+{"action":"destroy","session_id":"as-1"}
+```
+
+---
+
 ## Suggested LLM Playbooks
 
 ### Code change task
@@ -540,6 +708,12 @@ Examples:
 1. `process start`
 2. poll with `process status` and `process log`
 3. `process kill` if cancellation is needed
+
+### Complex coding task (delegation)
+1. `agent create` with appropriate backend and prompt
+2. For async: poll with `agent status`
+3. `agent send` for follow-up instructions
+4. `agent destroy` when done
 
 ### Knowledge-assisted task
 1. `knowledge_search` to find relevant docs/notes
@@ -556,3 +730,8 @@ Examples:
 2. `web_fetch` to read the most relevant URLs from search results
 3. Use `render_js=true` only for JS-heavy SPAs where direct fetch returns empty/broken content
 4. Summarize findings and incorporate into your response
+
+### External API interaction
+1. `http_request` with appropriate method and headers
+2. Parse the JSON response body
+3. Use results in your workflow

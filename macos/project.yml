@@ -38,6 +38,7 @@ targets:
     preBuildScripts:
       - name: "Verify Go Binary"
         shell: /bin/bash
+        basedOnDependencyAnalysis: false
         script: |
           if [ ! -f "${SRCROOT}/Resources/friday-core" ]; then
             echo "warning: friday-core binary not found in Resources/ — build will succeed but app cannot launch the runtime."
@@ -45,6 +46,7 @@ targets:
     postBuildScripts:
       - name: "Bundle Resources"
         shell: /bin/bash
+        basedOnDependencyAnalysis: false
         script: |
           RESOURCES_SRC="${SRCROOT}/Resources"
           RESOURCES_DST="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources"

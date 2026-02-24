@@ -7,6 +7,7 @@ struct FridayApp: App {
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(runtime: runtime)
+                .onAppear { runtime.bootstrap() }
         } label: {
             Image(nsImage: StatusBarIcon.make(active: runtime.isRunning))
         }
@@ -21,5 +22,10 @@ struct FridayApp: App {
             LogViewerView(runtime: runtime)
         }
         .defaultSize(width: 750, height: 500)
+
+        Window(L10n.permissions, id: "permissions") {
+            PermissionsView(bookmarks: runtime.bookmarks)
+        }
+        .defaultSize(width: 560, height: 420)
     }
 }
