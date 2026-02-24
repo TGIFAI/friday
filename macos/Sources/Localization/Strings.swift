@@ -50,6 +50,7 @@ enum L10n {
 
     // MARK: - Power
 
+    static var launchAtLogin: String { localized("Launch at Login", "开机自动启动") }
     static var preventSleep: String { localized("Prevent Sleep", "阻止休眠") }
     static var preventLidSleep: String { localized("Prevent Lid Sleep", "阻止合盖休眠") }
 

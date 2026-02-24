@@ -15,12 +15,16 @@ final class FridayRuntime: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     let power = PowerManager()
+    let launchAtLogin = LaunchAtLoginManager()
     let bookmarks = BookmarkManager()
 
     init() {
         // Forward child objectWillChange so views observing FridayRuntime re-render
-        // when PowerManager or BookmarkManager properties change.
+        // when PowerManager, LaunchAtLoginManager, or BookmarkManager properties change.
         power.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        launchAtLogin.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         bookmarks.objectWillChange

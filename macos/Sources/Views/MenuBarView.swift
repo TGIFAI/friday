@@ -157,6 +157,9 @@ struct MenuBarView: View {
 
     private var powerSection: some View {
         VStack(spacing: 0) {
+            checkableRow(L10n.launchAtLogin, icon: "sunrise", isOn: runtime.launchAtLogin.isEnabled) {
+                runtime.launchAtLogin.isEnabled.toggle()
+            }
             checkableRow(L10n.preventSleep, icon: "moon.zzz", isOn: runtime.power.preventSleep) {
                 runtime.power.preventSleep.toggle()
             }
