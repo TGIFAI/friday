@@ -48,6 +48,8 @@ final class ConfigManager {
             fridayHome.appendingPathComponent("logs"),
             fridayHome.appendingPathComponent("skills"),
             fridayHome.appendingPathComponent("workspaces/default"),
+            fridayHome.appendingPathComponent("workspaces/default/memory/sessions"),
+            fridayHome.appendingPathComponent("workspaces/default/skills"),
         ]
         for dir in dirs {
             if !fm.fileExists(atPath: dir.path) {
@@ -110,7 +112,7 @@ final class ConfigManager {
         config:
           api_key: "${OPENAI_API_KEY}"
           default_model: "gpt-4o-mini"
-          timeout: 60
+          timeout: 300
           max_retries: 3
 
     channels:

@@ -14,6 +14,8 @@ struct MenuBarView: View {
             sectionDivider
             actionSection
             sectionDivider
+            powerSection
+            sectionDivider
             languageSection
             sectionDivider
             footerSection
@@ -149,6 +151,53 @@ struct MenuBarView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    // MARK: - Power & Permissions
+
+    private var powerSection: some View {
+        VStack(spacing: 0) {
+            checkableRow(L10n.preventSleep, icon: "moon.zzz", isOn: runtime.power.preventSleep) {
+                runtime.power.preventSleep.toggle()
+            }
+            checkableRow(L10n.preventLidSleep, icon: "laptopcomputer.slash", isOn: runtime.power.preventLidSleep) {
+                runtime.power.preventLidSleep.toggle()
+            }
+
+            menuRow(L10n.permissions, icon: "lock.shield") {
+                openWindow(id: "permissions")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    private func checkableRow(
+        _ title: String,
+        icon: String,
+        isOn: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(FridayFont.icon)
+                    .frame(width: 20, alignment: .center)
+                Text(title)
+                    .font(FridayFont.body)
+                Spacer()
+                if isOn {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.fridayAccent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(MenuRowButtonStyle())
     }
 
     // MARK: - Language (expandable submenu)

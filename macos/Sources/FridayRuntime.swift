@@ -12,6 +12,21 @@ final class FridayRuntime: ObservableObject {
     private let processManager = ProcessManager()
     private let configManager = ConfigManager()
     private var healthTimer: Timer?
+    private var cancellables = Set<AnyCancellable>()
+
+    let power = PowerManager()
+    let bookmarks = BookmarkManager()
+
+    init() {
+        // Forward child objectWillChange so views observing FridayRuntime re-render
+        // when PowerManager or BookmarkManager properties change.
+        power.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        bookmarks.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+    }
 
     var fridayHome: URL {
         configManager.fridayHome
@@ -23,11 +38,25 @@ final class FridayRuntime: ObservableObject {
 
     // MARK: - Lifecycle
 
+    private var didBootstrap = false
+
+    /// Called once at app launch to bootstrap directory structure and restore bookmarks.
+    func bootstrap() {
+        guard !didBootstrap else { return }
+        didBootstrap = true
+        try? configManager.initializeIfNeeded()
+        bookmarks.restoreBookmarks()
+    }
+
     func start() {
         guard !isRunning else { return }
         do {
             let config = try configManager.load()
-            try processManager.start(fridayHome: fridayHome, config: config)
+            try processManager.start(
+                fridayHome: fridayHome,
+                config: config,
+                allowedPaths: bookmarks.allowedPathStrings
+            )
 
             processManager.onLog = { [weak self] line in
                 Task { @MainActor in

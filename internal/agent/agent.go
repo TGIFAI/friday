@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/cloudwego/eino/schema"
 
@@ -71,6 +73,15 @@ func (ag *Agent) Init(_ context.Context) error {
 	_ = ag.skills.LoadAll()
 
 	allowedPaths := []string{ag.workspace}
+	// Merge extra allowed paths from macOS sandbox bookmarks (colon-separated).
+	if extra := os.Getenv("FRIDAY_ALLOWED_PATHS"); extra != "" {
+		for _, p := range strings.Split(extra, ":") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				allowedPaths = append(allowedPaths, p)
+			}
+		}
+	}
 	// file related tools
 	_ = ag.tools.Register(filex.NewFileTool(ag.workspace, allowedPaths))
 	_ = ag.tools.Register(filex.NewReadTool(ag.workspace, allowedPaths))

@@ -48,6 +48,38 @@ enum L10n {
         localized("\(shown) of \(total)", "\(shown) / \(total)")
     }
 
+    // MARK: - Power
+
+    static var preventSleep: String { localized("Prevent Sleep", "阻止休眠") }
+    static var preventLidSleep: String { localized("Prevent Lid Sleep", "阻止合盖休眠") }
+
+    // MARK: - Permissions
+
+    static var permissions: String { localized("Permissions...", "权限管理...") }
+    static var permDirectories: String { localized("Directory Access", "目录访问") }
+    static var permDirectoriesDesc: String {
+        localized(
+            "Grant Friday access to directories outside its sandbox. Bookmarks persist across restarts.",
+            "授予 Friday 访问沙箱外目录的权限，授权在重启后仍然有效。"
+        )
+    }
+    static var permEmpty: String { localized("No directories added", "暂无授权目录") }
+    static var permAdd: String { localized("Add Directory", "添加目录") }
+    static var permAddMessage: String {
+        localized(
+            "Choose a directory to grant Friday access",
+            "选择一个目录以授予 Friday 访问权限"
+        )
+    }
+    static var permGrant: String { localized("Grant Access", "授权访问") }
+    static var permRemove: String { localized("Revoke Access", "撤销访问") }
+    static var permHint: String {
+        localized(
+            "Bookmarks persist across app restarts.",
+            "授权在应用重启后仍然有效。"
+        )
+    }
+
     // MARK: - Errors
 
     static func exitCode(_ code: Int32) -> String {

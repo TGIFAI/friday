@@ -12,7 +12,7 @@ final class ProcessManager: @unchecked Sendable {
         Bundle.main.url(forResource: "friday-core", withExtension: nil)
     }
 
-    func start(fridayHome: URL, config: FridayConfig) throws {
+    func start(fridayHome: URL, config: FridayConfig, allowedPaths: [String] = []) throws {
         guard let binary = binaryURL else {
             throw FridayError.binaryNotFound
         }
@@ -29,6 +29,10 @@ final class ProcessManager: @unchecked Sendable {
         // Pass API keys from Keychain into environment so config.yaml can use ${VAR} syntax.
         for (key, value) in KeychainHelper.allAPIKeys() {
             env[key] = value
+        }
+        // Inject security-scoped bookmark paths so agents can access user-approved directories.
+        if !allowedPaths.isEmpty {
+            env["FRIDAY_ALLOWED_PATHS"] = allowedPaths.joined(separator: ":")
         }
         proc.environment = env
 
