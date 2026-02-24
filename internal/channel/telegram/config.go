@@ -3,6 +3,7 @@ package telegram
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bytedance/gg/gconv"
@@ -11,16 +12,23 @@ import (
 )
 
 type Config struct {
-	Token       string // Telegram Bot Token
-	WebhookURL  string
-	WebhookPort int
-	PollTimeout time.Duration
-	MaxWorkers  int
+	Token       string        // Telegram Bot Token (required)
+	Mode        string        // "polling" (default) or "webhook"
+	WebhookURL  string        // External base URL for webhook (required in webhook mode, e.g. "https://example.com")
+	SecretToken string        // Secret token for webhook verification (optional, webhook mode)
+	PollTimeout time.Duration // Long-polling timeout (polling mode only, default 30s)
+	MaxWorkers  int           // Concurrent update workers (default 10)
 }
 
 func (c *Config) Validate() error {
 	if c.Token == "" {
 		return errors.New("telegram bot token cannot be empty")
+	}
+	if c.Mode != "polling" && c.Mode != "webhook" {
+		return fmt.Errorf("telegram mode must be \"polling\" or \"webhook\", got %q", c.Mode)
+	}
+	if c.Mode == "webhook" && c.WebhookURL == "" {
+		return errors.New("telegram webhook_url cannot be empty in webhook mode")
 	}
 	if c.PollTimeout == 0 {
 		c.PollTimeout = 30 * time.Second
@@ -44,12 +52,13 @@ func ParseConfig(configMap map[string]interface{}) (*Config, error) {
 	}
 	config.Token = token
 
-	if webhookURL := gconv.To[string](configMap["webhook_url"]); webhookURL != "" {
-		config.WebhookURL = webhookURL
+	config.Mode = strings.ToLower(gconv.To[string](configMap["mode"]))
+	if config.Mode == "" {
+		config.Mode = "polling"
 	}
-	if webhookPort := gconv.To[int](configMap["webhook_port"]); webhookPort > 0 {
-		config.WebhookPort = webhookPort
-	}
+
+	config.WebhookURL = strings.TrimRight(gconv.To[string](configMap["webhook_url"]), "/")
+	config.SecretToken = gconv.To[string](configMap["secret_token"])
 
 	if pollTimeout := gconv.To[int](configMap["poll_timeout"]); pollTimeout > 0 {
 		config.PollTimeout = time.Duration(pollTimeout) * time.Second
