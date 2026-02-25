@@ -5,7 +5,11 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/schema"
 
@@ -22,10 +26,15 @@ import (
 	"github.com/tgifai/friday/internal/agent/tool/webx"
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/config"
+	"github.com/tgifai/friday/internal/consts"
+	"github.com/tgifai/friday/internal/cronjob"
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/pkg/utils"
 	"github.com/tgifai/friday/internal/provider"
 )
+
+// EnqueueFunc is a callback to submit messages into the gateway pipeline.
+type EnqueueFunc func(ctx context.Context, msg *channel.Message) error
 
 type Agent struct {
 	id        string
@@ -35,6 +44,10 @@ type Agent struct {
 	tools  *tool.Registry
 	skills *skill.Registry
 	sess   *session.Manager
+
+	enqueue          EnqueueFunc // allows agent to self-enqueue messages (set by gateway)
+	consolidateEvery int
+	flushCooldown    time.Duration
 }
 
 func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
@@ -44,13 +57,38 @@ func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
 		return nil, fmt.Errorf("init session manager: %w", err)
 	}
 
+	// Wire TTL from config.
+	if cfg.Session.TTL != "" {
+		ttl, err := time.ParseDuration(cfg.Session.TTL)
+		if err != nil {
+			return nil, fmt.Errorf("parse session TTL %q: %w", cfg.Session.TTL, err)
+		}
+		sessMgr.SetTTL(ttl)
+	}
+
+	consolidateEvery := cfg.Session.ConsolidateEvery
+	if consolidateEvery <= 0 {
+		consolidateEvery = 50
+	}
+
+	flushCooldown := 2 * time.Hour
+	if cfg.Session.FlushCooldown != "" {
+		cd, err := time.ParseDuration(cfg.Session.FlushCooldown)
+		if err != nil {
+			return nil, fmt.Errorf("parse flush cooldown %q: %w", cfg.Session.FlushCooldown, err)
+		}
+		flushCooldown = cd
+	}
+
 	ag := &Agent{
-		id:        cfg.ID,
-		name:      cfg.Name,
-		workspace: cfg.Workspace,
-		sess:      sessMgr,
-		tools:     tool.NewRegistry(),
-		skills:    skill.NewRegistry(cfg.Workspace),
+		id:               cfg.ID,
+		name:             cfg.Name,
+		workspace:        cfg.Workspace,
+		sess:             sessMgr,
+		tools:            tool.NewRegistry(),
+		skills:           skill.NewRegistry(cfg.Workspace),
+		consolidateEvery: consolidateEvery,
+		flushCooldown:    flushCooldown,
 	}
 
 	return ag, nil
@@ -68,7 +106,12 @@ func (ag *Agent) Workspace() string {
 	return ag.workspace
 }
 
-func (ag *Agent) Init(_ context.Context) error {
+func (ag *Agent) Init(ctx context.Context) error {
+	// Start session GC if TTL is configured.
+	if ag.sess.TTL() > 0 {
+		ag.sess.StartGCLoop(ctx, 0) // 0 = default 10min interval
+	}
+
 	// skills
 	_ = ag.skills.LoadAll()
 
@@ -174,7 +217,152 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 			Content: "System might be unavailable, please try again later.",
 		}
 	}
+
+	// Check if session has crossed the consolidation threshold.
+	ag.maybeEnqueueFlush(ctx, sess)
+
 	return resp, nil
+}
+
+// SetEnqueue gives the agent the ability to enqueue messages into the gateway
+// pipeline. This is called during gateway initialization.
+func (ag *Agent) SetEnqueue(fn EnqueueFunc) {
+	ag.enqueue = fn
+}
+
+// ResetSession clears the current session for the given message's channel/chat.
+// Before clearing, it archives a brief summary of user messages to today's
+// daily memory file. No LLM call is made.
+func (ag *Agent) ResetSession(ctx context.Context, msg *channel.Message) (string, error) {
+	sess := ag.sess.GetOrCreateFor(msg.ChannelType, msg.ChannelID, msg.ChatID)
+
+	history := sess.History()
+	msgCount := sess.MsgCount()
+
+	// Archive user messages to today's daily memory file.
+	if len(history) > 0 {
+		if err := ag.archiveSessionToDailyMemory(history); err != nil {
+			logs.CtxWarn(ctx, "[agent:%s] archive session to daily memory: %v", ag.id, err)
+		}
+	}
+
+	sess.Clear()
+
+	if err := ag.sess.Save(sess); err != nil {
+		return "", fmt.Errorf("save cleared session: %w", err)
+	}
+
+	if msgCount == 0 {
+		return "Session is already empty. Ready for a fresh start!", nil
+	}
+	return fmt.Sprintf("Session cleared (%d messages archived). Starting fresh!", msgCount), nil
+}
+
+// archiveSessionToDailyMemory appends a brief text summary of user messages
+// from the given history to today's daily memory file.
+func (ag *Agent) archiveSessionToDailyMemory(history []*schema.Message) error {
+	now := time.Now()
+	dailyPath := filepath.Join(ag.workspace, consts.DailyMemoryFile(now))
+
+	if err := os.MkdirAll(filepath.Dir(dailyPath), 0o755); err != nil {
+		return fmt.Errorf("create daily dir: %w", err)
+	}
+
+	const maxArchiveMessages = 10
+	const maxRuneLen = 200
+	var lines []string
+	for _, msg := range history {
+		if msg.Role != schema.User || strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		content := msg.Content
+		if utf8.RuneCountInString(content) > maxRuneLen {
+			runes := []rune(content)
+			content = string(runes[:maxRuneLen]) + "..."
+		}
+		lines = append(lines, "- "+content)
+		if len(lines) >= maxArchiveMessages {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+
+	f, err := os.OpenFile(dailyPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open daily file: %w", err)
+	}
+	defer f.Close()
+
+	header := fmt.Sprintf("\n## Session Reset (%s)\n\n", now.Format("15:04"))
+	if _, err := f.WriteString(header + strings.Join(lines, "\n") + "\n"); err != nil {
+		return fmt.Errorf("write to daily file: %w", err)
+	}
+	return nil
+}
+
+// maybeEnqueueFlush checks if the session message count has crossed a
+// consolidation threshold and, if so, enqueues a flush job to write context
+// to memory files. Respects a cooldown to avoid excessive flushes.
+func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
+	if ag.enqueue == nil || ag.consolidateEvery <= 0 {
+		return
+	}
+
+	count := sess.MsgCount()
+	threshold := int64(ag.consolidateEvery)
+
+	// Check if we've crossed a threshold boundary since the last flush.
+	lastFlushCntStr := sess.GetMeta("flush_at_msg_cnt")
+	lastFlushCnt := int64(0)
+	if lastFlushCntStr != "" {
+		lastFlushCnt, _ = strconv.ParseInt(lastFlushCntStr, 10, 64)
+	}
+	if count-lastFlushCnt < threshold {
+		return
+	}
+
+	// Check cooldown.
+	if lastFlush := sess.GetMeta("last_flush_at"); lastFlush != "" {
+		if t, err := time.Parse(time.RFC3339, lastFlush); err == nil {
+			if time.Since(t) < ag.flushCooldown {
+				return
+			}
+		}
+	}
+
+	// Build flush prompt.
+	now := time.Now()
+	prompt, hasWork := cronjob.BuildFlushPrompt(ag.workspace, now)
+	if !hasWork {
+		return
+	}
+
+	// Record flush state before enqueuing.
+	sess.SetMeta("last_flush_at", now.Format(time.RFC3339))
+	sess.SetMeta("flush_at_msg_cnt", strconv.FormatInt(count, 10))
+
+	sessionKey := fmt.Sprintf("cron:__consolidation_flush__:%s", ag.id)
+	flushMsg := &channel.Message{
+		ID:          fmt.Sprintf("flush-%s-%d", ag.id, now.UnixMilli()),
+		ChannelType: channel.Type("cron"),
+		Content:     prompt,
+		SessionKey:  sessionKey,
+		Metadata: map[string]string{
+			"agent_id":      ag.id,
+			"cron_job_name": "consolidation-flush",
+			"cron_job_id":   "__consolidation_flush__:" + ag.id,
+		},
+	}
+
+	go func() {
+		if err := ag.enqueue(ctx, flushMsg); err != nil {
+			logs.CtxWarn(ctx, "[agent:%s] consolidation flush enqueue failed: %v", ag.id, err)
+		} else {
+			logs.CtxInfo(ctx, "[agent:%s] consolidation flush triggered at msg count %d", ag.id, count)
+		}
+	}()
 }
 
 // buildUserMessage constructs a schema.Message from a channel message.

@@ -54,6 +54,7 @@ type (
 		Skills    []string           `yaml:"skills"`
 		Models    ModelsConfig       `yaml:"models"`
 		Config    AgentRuntimeConfig `yaml:"config"`
+		Session   SessionConfig      `yaml:"session"`
 	}
 
 	ModelsConfig struct {
@@ -65,6 +66,12 @@ type (
 		MaxIterations int     `yaml:"max_iterations"`
 		MaxTokens     int     `yaml:"max_tokens"`
 		Temperature   float64 `yaml:"temperature"`
+	}
+
+	SessionConfig struct {
+		TTL              string `yaml:"ttl"`               // e.g. "24h", session expiry after last activity
+		ConsolidateEvery int    `yaml:"consolidate_every"`  // trigger memory flush every N messages (default: 50)
+		FlushCooldown    string `yaml:"flush_cooldown"`     // minimum interval between flushes (default: "2h")
 	}
 
 	ChannelConfig struct {

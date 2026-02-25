@@ -109,6 +109,11 @@ func registerBuiltinCommands(r *CommandRouter) {
 		Description: "List all scheduled cron jobs",
 		Handler:     cmdCronjob,
 	})
+	r.Register(&Command{
+		Name:        "/new",
+		Description: "Clear current session and start a new conversation",
+		Handler:     cmdNew,
+	})
 }
 
 func cmdStart(_ context.Context, _ *Gateway, _ *channel.Message) (string, error) {
@@ -150,4 +155,12 @@ func cmdCronjob(_ context.Context, _ *Gateway, _ *channel.Message) (string, erro
 		return "Cron scheduler is not enabled", nil
 	}
 	return cronjob.FormatJobList(s.ListJobs()), nil
+}
+
+func cmdNew(ctx context.Context, gw *Gateway, msg *channel.Message) (string, error) {
+	ag, err := gw.getAgentByChannel(msg.ChannelID)
+	if err != nil {
+		return "", err
+	}
+	return ag.ResetSession(ctx, msg)
 }

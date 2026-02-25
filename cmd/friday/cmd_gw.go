@@ -120,6 +120,11 @@ func (r *GatewayRunner) initCronjob(ctx context.Context, cfg *config.Config, gw 
 		if err := s.AddJob(compactJob, false); err != nil {
 			logs.CtxWarn(ctx, "[cronjob] register compact for agent %s: %v", id, err)
 		}
+
+		flushJob := cronjob.NewFlushJob(id, agCfg.Workspace)
+		if err := s.AddJob(flushJob, false); err != nil {
+			logs.CtxWarn(ctx, "[cronjob] register flush for agent %s: %v", id, err)
+		}
 	}
 
 	return cronjob.Start(ctx)

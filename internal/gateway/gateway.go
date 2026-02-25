@@ -209,6 +209,7 @@ func (gw *Gateway) initAgents(ctx context.Context, agents map[string]config.Agen
 			return fmt.Errorf("init agent %s: %w", id, err)
 		}
 
+		ag.SetEnqueue(gw.Enqueue)
 		gw.agents.Store(id, ag)
 		logs.CtxInfo(ctx, "[gateway] register agent #%s success", id)
 	}
