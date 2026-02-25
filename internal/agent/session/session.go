@@ -21,6 +21,7 @@ type Session struct {
 	ChannelID string
 	ChatID    string
 	messages []*schema.Message
+	metadata map[string]string
 
 	createTime time.Time
 	updateTime time.Time
@@ -101,6 +102,22 @@ func (s *Session) IsExpired(now time.Time) bool {
 		return false
 	}
 	return !s.expireAt.After(now)
+}
+
+func (s *Session) GetMeta(key string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.metadata[key]
+}
+
+func (s *Session) SetMeta(key, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.metadata == nil {
+		s.metadata = make(map[string]string)
+	}
+	s.metadata[key] = value
+	s.markMutationLocked()
 }
 
 func (s *Session) markMutationLocked() {

@@ -80,6 +80,7 @@ enum L10n {
             "授权在应用重启后仍然有效。"
         )
     }
+    static var noSandbox: String { localized("No Sandbox", "非沙箱模式") }
 
     // MARK: - Errors
 

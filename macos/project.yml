@@ -27,14 +27,14 @@ targets:
     platform: macOS
     sources:
       - Sources
-    resources:
-      - path: Assets.xcassets
+      - Assets.xcassets
     dependencies:
       - package: Yams
         product: Yams
     settings:
       base:
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     preBuildScripts:
       - name: "Verify Go Binary"
         shell: /bin/bash

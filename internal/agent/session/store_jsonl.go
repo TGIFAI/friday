@@ -48,8 +48,9 @@ type jsonlMetadataRecord struct {
 	ExpireAt    time.Time `json:"expire_at,omitempty"`
 	MsgCount    int64     `json:"msg_count"`
 	ToolCallCnt int64     `json:"tool_call_count"`
-	Format      string    `json:"format"`
-	Schema      int       `json:"schema"`
+	Format      string            `json:"format"`
+	Schema      int               `json:"schema"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
 type jsonlMessageRecord struct {
@@ -172,6 +173,7 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 		ChannelID:       meta.ChannelID,
 		ChatID:          meta.ChatID,
 		messages:        msgs,
+		metadata:        meta.Metadata,
 		createTime:      meta.CreatedAt,
 		updateTime:      meta.UpdatedAt,
 		expireAt:        meta.ExpireAt,
@@ -239,6 +241,7 @@ func (s *jsonlStore) Save(ctx context.Context, sess *Session) error {
 		ToolCallCnt: sess.toolCallCnt,
 		Format:      jsonlFormat,
 		Schema:      jsonlSchema,
+		Metadata:    sess.metadata,
 	}
 	sess.mu.RUnlock()
 

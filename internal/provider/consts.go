@@ -13,6 +13,7 @@ const (
 	Gemini    Type = "gemini"
 	Ollama    Type = "ollama"
 	Qwen      Type = "qwen"
+	CLI       Type = "cli"
 )
 
 var SupportedProviders = []Type{
@@ -21,6 +22,7 @@ var SupportedProviders = []Type{
 	Gemini,
 	Ollama,
 	Qwen,
+	CLI,
 }
 
 type ModelInfo struct {
