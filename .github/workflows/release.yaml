@@ -124,7 +124,7 @@ jobs:
           retention-days: 1
 
   build-macos-app:
-    name: Friday.app (${{ matrix.arch }})
+    name: Friday.app (${{ matrix.arch }}${{ matrix.suffix }})
     runs-on: macos-15
     needs: build
     strategy:
@@ -133,8 +133,24 @@ jobs:
         include:
           - arch: arm64
             goarch: arm64
+            sandbox: true
+            entitlements: Friday.entitlements
+            suffix: ""
+          - arch: arm64
+            goarch: arm64
+            sandbox: false
+            entitlements: FridayNoSandbox.entitlements
+            suffix: _nosandbox
           - arch: x86_64
             goarch: amd64
+            sandbox: true
+            entitlements: Friday.entitlements
+            suffix: ""
+          - arch: x86_64
+            goarch: amd64
+            sandbox: false
+            entitlements: FridayNoSandbox.entitlements
+            suffix: _nosandbox
 
     steps:
       - name: Checkout
@@ -197,6 +213,7 @@ jobs:
             -arch ${{ matrix.arch }} \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_ENTITLEMENTS="${{ matrix.entitlements }}" \
             DEVELOPMENT_TEAM="" \
             MARKETING_VERSION="${MKT_VERSION}" \
             2>&1 | tee /tmp/xcodebuild.log | tail -30
@@ -229,25 +246,26 @@ jobs:
           ln -s /Applications dmg-staging/Applications
 
           mkdir -p output
+          DMG_NAME="${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}${{ matrix.suffix }}"
           hdiutil create \
             -volname "Friday ${VERSION}" \
             -srcfolder dmg-staging \
             -ov \
             -format UDZO \
-            "output/${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}.dmg"
+            "output/${DMG_NAME}.dmg"
 
           rm -rf dmg-staging
 
           # Compress DMG into tar.gz
-          tar -czf "output/${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}.dmg.tar.gz" \
-            -C output "${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}.dmg"
-          rm -f "output/${APP_NAME}_${VERSION}_darwin_${{ matrix.goarch }}.dmg"
+          tar -czf "output/${DMG_NAME}.dmg.tar.gz" \
+            -C output "${DMG_NAME}.dmg"
+          rm -f "output/${DMG_NAME}.dmg"
           echo "DMG archive: $(du -h output/*.tar.gz | cut -f1)"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-darwin-app-${{ matrix.goarch }}
+          name: build-darwin-app-${{ matrix.goarch }}${{ matrix.suffix }}
           path: output/*.tar.gz
           if-no-files-found: error
           retention-days: 7

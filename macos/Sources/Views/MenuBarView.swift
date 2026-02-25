@@ -167,13 +167,19 @@ struct MenuBarView: View {
                 runtime.power.preventLidSleep.toggle()
             }
 
-            menuRow(L10n.permissions, icon: "lock.shield") {
+            menuRow(L10n.permissions, icon: "lock.shield",
+                    note: isSandboxed ? nil : L10n.noSandbox) {
                 openWindow(id: "permissions")
                 NSApp.activate(ignoringOtherApps: true)
             }
+            .disabled(!isSandboxed)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    private var isSandboxed: Bool {
+        ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
     }
 
     private func checkableRow(
@@ -292,6 +298,7 @@ struct MenuBarView: View {
         _ title: String,
         icon: String,
         tint: Color? = nil,
+        note: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -304,6 +311,11 @@ struct MenuBarView: View {
                     .font(FridayFont.body)
                     .foregroundStyle(tint ?? .primary)
                 Spacer()
+                if let note {
+                    Text(note)
+                        .font(FridayFont.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)

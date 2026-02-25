@@ -13,6 +13,7 @@ import (
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/provider"
+	"github.com/tgifai/friday/internal/provider/cli"
 )
 
 const defaultMaxIterations = 25
@@ -22,6 +23,9 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 	if cfg.MaxIterations > 0 {
 		maxIterations = cfg.MaxIterations
 	}
+
+	// Inject session into context so CLI providers can access metadata.
+	ctx = cli.WithSession(ctx, sess)
 
 	// The current user message has already been appended to the session in ProcessMessage.
 	msgs := ag.buildMessages(sess, msg, false)

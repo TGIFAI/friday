@@ -34,6 +34,7 @@ import (
 	"github.com/tgifai/friday/internal/provider/gemini"
 	"github.com/tgifai/friday/internal/provider/ollama"
 	"github.com/tgifai/friday/internal/provider/openai"
+	"github.com/tgifai/friday/internal/provider/cli"
 	"github.com/tgifai/friday/internal/provider/qwen"
 )
 
@@ -186,6 +187,8 @@ func newProvider(ctx context.Context, cfg config.ProviderConfig) (provider.Provi
 		return ollama.NewProvider(ctx, cfg.ID, cfgMap)
 	case provider.Qwen:
 		return qwen.NewProvider(ctx, cfg.ID, cfgMap)
+	case provider.CLI:
+		return cli.NewProvider(ctx, cfg.ID, cfgMap)
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", cfg.Type)
 	}
