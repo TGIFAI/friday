@@ -61,6 +61,14 @@ agents:
       max_iterations: 10
       max_tokens: 4000
       temperature: 0.7
+    # Session management settings.
+    session:
+      # Session expiry after last activity. Empty means no expiry.
+      ttl: "24h"
+      # Trigger a memory flush every N messages during conversation.
+      consolidate_every: 50
+      # Minimum interval between mid-conversation flushes.
+      flush_cooldown: "2h"
 
 # Channel definitions. Key = channel ID.
 channels:

@@ -23,11 +23,12 @@ Friday is a self-hosted, multi-agent AI assistant written in Go. It connects you
 - **Multi-Channel** — Telegram, Lark (Feishu), and HTTP API out of the box. Each channel handles platform-specific details (media groups, mentions, reactions) so the agent sees a clean, unified message stream.
 - **Multi-Provider with Fallback** — OpenAI, Anthropic, Gemini, Ollama, Qwen. Configure a primary model and fallback chain per agent; Friday switches automatically on failure.
 - **Agentic Tool Loop** — Agents call tools iteratively until the task is done. Built-in tool families: shell execution, file operations, web search & fetch, cron management, and messaging.
-- **Two-Tier Memory** — Persistent knowledge in `MEMORY.md` + daily event logs in `memory/daily/`. A nightly compaction job automatically condenses daily logs and promotes durable facts.
+- **Two-Tier Memory** — Persistent knowledge in `MEMORY.md` + daily event logs in `memory/daily/`. A pre-compaction flush job (01:45) saves the day's context before nightly compaction (02:00) condenses logs and promotes durable facts. Threshold-based consolidation also flushes memory mid-conversation when message count crosses a configurable boundary.
+- **Session Management** — JSONL-backed sessions with configurable TTL, automatic expiry via GC, and a `/new` command that archives the current conversation to daily memory and starts fresh.
 - **Skills System** — Behavioral extensions in YAML + Markdown (like system prompt plugins). Built-in skills for GitHub, Notion, Obsidian, tmux, summarization, and more. Add your own per-agent or globally.
 - **Workspace-Driven Personality** — Each agent has a workspace of Markdown templates (SOUL, IDENTITY, TOOLS, SECURITY, …) that shape its system prompt. Fully customizable.
 - **Security & ACL** — Per-channel pairing policies (`welcome` / `silent` / `custom`) and group/user-level allow/block lists.
-- **Scheduled Jobs** — Built-in cron scheduler for heartbeat checks, memory compaction, and custom recurring tasks.
+- **Scheduled Jobs** — Built-in cron scheduler for heartbeat checks, memory flush, memory compaction, and custom recurring tasks.
 
 ## Supported Platforms
 
@@ -138,6 +139,10 @@ User ──► Channel (Telegram / Lark / HTTP)
               ▼
          Session + Memory
          (JSONL history, daily logs, MEMORY.md)
+              │
+              ▼
+         Cron Scheduler
+         (heartbeat, memory flush, compaction)
 ```
 
 ### Project Layout
@@ -160,7 +165,7 @@ internal/
     gemini/              Google Gemini
     ollama/              Ollama (local models)
     qwen/                Alibaba Qwen
-  cronjob/               Cron scheduler, heartbeat, memory compaction
+  cronjob/               Cron scheduler, heartbeat, memory flush, compaction
   config/                Config schema, parsing, validation
   consts/                Constants, workspace templates
 ```
