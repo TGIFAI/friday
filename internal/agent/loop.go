@@ -28,10 +28,16 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 	ctx = cli.WithSession(ctx, sess)
 
 	// The current user message has already been appended to the session in ProcessMessage.
-	msgs := ag.buildMessages(sess, msg, false)
+	msgs := ag.buildMessages(sess, msg)
 
 	logs.CtxDebug(ctx, "[agent:%s] sending to provider %s:%s, messages count: %d, max_iterations: %d",
 		ag.id, ms.ProviderID, ms.ModelName, len(msgs), maxIterations)
+
+	// Track intermediate tool-call turns so they can be committed to the
+	// session after the loop completes successfully. We batch-append rather
+	// than appending during the loop so that a failed attempt (which may
+	// trigger provider fallback) does not leave orphaned turns in the session.
+	var intermediate []*schema.Message
 
 	var finalResp *schema.Message
 	opts := []model.Option{
@@ -53,6 +59,7 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 		logs.CtxDebug(ctx, "[agent:%s:%d] llmResp: %+v", ag.id, iter, str)
 		if len(llmResp.ToolCalls) > 0 {
 			msgs = append(msgs, llmResp)
+			intermediate = append(intermediate, llmResp)
 			for _, call := range llmResp.ToolCalls {
 				logs.CtxDebug(ctx, "[agent:%s:%d] call: %+v", ag.id, iter, call)
 				res, callErr := ag.tools.ExecuteToolCall(ctx, &call)
@@ -73,6 +80,7 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 					}
 				}
 				msgs = append(msgs, resMsg)
+				intermediate = append(intermediate, resMsg)
 			}
 			continue
 		}
@@ -87,6 +95,10 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 		finalResp = ag.runSummary(ctx, p, ms, msgs)
 	}
 
+	// Commit intermediate tool-call turns and the final response to session.
+	for _, m := range intermediate {
+		sess.Append(m)
+	}
 	sess.Append(finalResp)
 	return &channel.Response{
 		ID:       msg.ID,

@@ -17,7 +17,7 @@ import (
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
-func (ag *Agent) buildMessages(sess *session.Session, msg *channel.Message, includeCurrentUser bool) []*schema.Message {
+func (ag *Agent) buildMessages(sess *session.Session, msg *channel.Message) []*schema.Message {
 
 	msgs := make([]*schema.Message, 0, 32)
 	systemPrompt := ag.buildRuntimeInformation(msg)

@@ -385,9 +385,11 @@ func writeJSONLBatch(writer *bufio.Writer, metaLine string, messages []*schema.M
 
 func marshalMessageLine(msg *schema.Message) (string, error) {
 	trimMsg := &schema.Message{
-		Role:      msg.Role,
-		Content:   msg.Content,
-		ToolCalls: msg.ToolCalls,
+		Role:       msg.Role,
+		Content:    msg.Content,
+		ToolCalls:  msg.ToolCalls,
+		ToolCallID: msg.ToolCallID,
+		ToolName:   msg.ToolName,
 	}
 	rec := jsonlMessageRecord{
 		Type:    "msg",
