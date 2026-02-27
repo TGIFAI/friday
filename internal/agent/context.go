@@ -17,7 +17,7 @@ import (
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
-func (ag *Agent) buildMessages(sess *session.Session, msg *channel.Message, includeCurrentUser bool) []*schema.Message {
+func (ag *Agent) buildMessages(sess *session.Session, msg *channel.Message) []*schema.Message {
 
 	msgs := make([]*schema.Message, 0, 32)
 	systemPrompt := ag.buildRuntimeInformation(msg)
@@ -49,7 +49,7 @@ func (ag *Agent) buildRuntimeInformation(msg *channel.Message) string {
 	fmt.Fprintf(&b, "- workspace: %s\n", ag.workspace)
 	fmt.Fprintf(&b, "- version: %s\n", friday.VERSION)
 	fmt.Fprintf(&b, "- platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Fprintf(&b, "- shell: %s\n", detectShell())
+	fmt.Fprintf(&b, "- shell: %s\n", defaultShell())
 
 	// ---- dynamic section (per-request) ----
 	fmt.Fprintf(&b, "- current time: %s\n", time.Now().Format(time.RFC3339))
@@ -60,17 +60,6 @@ func (ag *Agent) buildRuntimeInformation(msg *channel.Message) string {
 	}
 
 	return b.String()
-}
-
-// detectShell returns the name of the current user's shell.
-func detectShell() string {
-	if s := os.Getenv("SHELL"); s != "" {
-		return filepath.Base(s)
-	}
-	if runtime.GOOS == "windows" {
-		return "powershell"
-	}
-	return "sh"
 }
 
 func (ag *Agent) buildSystemPrompt() (string, error) {

@@ -113,7 +113,7 @@ func (s *Scheduler) AddJob(job Job, persist bool) error {
 	if err := s.store.Add(job); err != nil {
 		// Heartbeat and compact jobs are re-registered on every startup;
 		// silently update the existing entry instead of returning an error.
-		if IsHeartbeatJob(job.ID) || IsCompactJob(job.ID) {
+		if IsHeartbeatJob(job.ID) || IsCompactJob(job.ID) || IsFlushJob(job.ID) {
 			s.store.Update(job)
 		} else {
 			return err
@@ -212,6 +212,17 @@ func (s *Scheduler) executeJob(ctx context.Context, job Job, now time.Time) {
 		prompt, hasWork := BuildCompactPrompt(job.Workspace, now)
 		if !hasWork {
 			logs.CtxDebug(ctx, "[cronjob] compact %s: no work, skipping", job.ID)
+			s.reschedule(&job, now)
+			return
+		}
+		job.Prompt = prompt
+	}
+
+	// Flush: build prompt dynamically, skip if no activity.
+	if IsFlushJob(job.ID) {
+		prompt, hasWork := BuildFlushPrompt(job.Workspace, now)
+		if !hasWork {
+			logs.CtxDebug(ctx, "[cronjob] flush %s: no work, skipping", job.ID)
 			s.reschedule(&job, now)
 			return
 		}

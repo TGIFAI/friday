@@ -20,8 +20,8 @@ type Session struct {
 	Channel   channel.Type
 	ChannelID string
 	ChatID    string
-	messages []*schema.Message
-	metadata map[string]string
+	messages  []*schema.Message
+	metadata  map[string]string
 
 	createTime time.Time
 	updateTime time.Time

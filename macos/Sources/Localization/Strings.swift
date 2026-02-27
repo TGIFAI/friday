@@ -60,16 +60,23 @@ enum L10n {
     static var permDirectories: String { localized("Directory Access", "目录访问") }
     static var permDirectoriesDesc: String {
         localized(
-            "Grant Friday access to directories outside its sandbox. Bookmarks persist across restarts.",
-            "授予 Friday 访问沙箱外目录的权限，授权在重启后仍然有效。"
+            "Grant Friday access to files and directories outside its sandbox. Bookmarks persist across restarts.",
+            "授予 Friday 访问沙箱外文件和目录的权限，授权在重启后仍然有效。"
         )
     }
-    static var permEmpty: String { localized("No directories added", "暂无授权目录") }
+    static var permEmpty: String { localized("No bookmarks added", "暂无授权条目") }
     static var permAdd: String { localized("Add Directory", "添加目录") }
+    static var permAddFile: String { localized("Add File", "添加文件") }
     static var permAddMessage: String {
         localized(
             "Choose a directory to grant Friday access",
             "选择一个目录以授予 Friday 访问权限"
+        )
+    }
+    static var permAddFileMessage: String {
+        localized(
+            "Choose a file to grant Friday access",
+            "选择一个文件以授予 Friday 访问权限"
         )
     }
     static var permGrant: String { localized("Grant Access", "授权访问") }
@@ -81,6 +88,13 @@ enum L10n {
         )
     }
     static var noSandbox: String { localized("No Sandbox", "非沙箱模式") }
+    static var permSuggested: String { localized("Suggested", "推荐授权") }
+    static var permSuggestedDesc: String {
+        localized(
+            "Common developer directories detected on your system. Grant access so Friday can use tools like brew and git.",
+            "检测到系统中的常用开发目录，授权后 Friday 可正常使用 brew、git 等工具。"
+        )
+    }
 
     // MARK: - Errors
 

@@ -16,7 +16,7 @@ const (
 
 	runtimeEnvKey = "FRIDAY_RUNTIME"
 
-	// macOSAppChannelID is the built-in HTTP channel ID injected in macOS app mode.
+	// MacOSAppChannelID is the built-in HTTP channel ID injected in macOS app mode.
 	MacOSAppChannelID = "macos-app"
 
 	// macOSTokenFile stores the shared auth token within FRIDAY_HOME.

@@ -43,12 +43,10 @@ struct MenuBarView: View {
                         .frame(width: 36, height: 36)
                         .modifier(PulseModifier())
                 }
-                Circle()
-                    .fill(runtime.isRunning ? Color.statusActive : Color.secondary.opacity(0.25))
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
                     .frame(width: 28, height: 28)
-                Text("F")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundStyle(runtime.isRunning ? .white : .secondary)
             }
             .frame(width: 36, height: 36)
 

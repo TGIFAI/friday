@@ -16,5 +16,13 @@
 
     <key>com.apple.security.files.bookmarks.app-scope</key>
     <true/>
+
+    <!-- Allow reading/executing developer tools installed outside system paths.
+         Without this, Homebrew binaries (/opt/homebrew/) are invisible to the sandbox. -->
+    <key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+    <array>
+        <string>/opt/homebrew/</string>
+        <string>/usr/local/</string>
+    </array>
 </dict>
 </plist>
