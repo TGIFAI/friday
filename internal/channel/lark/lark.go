@@ -172,19 +172,26 @@ func (l *Lark) Stop(_ context.Context) error {
 // maxPostContentSize is the upper bound for a Lark post message content (30 KB).
 const maxPostContentSize = 30 * 1024
 
-func (l *Lark) SendMessage(ctx context.Context, chatID string, content string) error {
-	msgType, body, err := buildPostContent(content)
-	if err != nil {
-		return fmt.Errorf("build lark post content: %w", err)
+func (l *Lark) SendMessage(ctx context.Context, chatID, content string) error {
+	// refer to https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json#45e0953e
+	post := map[string]interface{}{
+		"zh_cn": map[string]interface{}{
+			"content": [][]map[string]any{
+				{
+					{"tag": "md", "text": content},
+				},
+			},
+		},
 	}
+	serialized, _ := sonic.MarshalString(post)
 
 	resp, err := l.client.Im.Message.Create(ctx,
 		larkim.NewCreateMessageReqBuilder().
 			ReceiveIdType(larkim.ReceiveIdTypeChatId).
 			Body(larkim.NewCreateMessageReqBodyBuilder().
-				MsgType(msgType).
+				MsgType(larkim.MsgTypePost).
 				ReceiveId(chatID).
-				Content(body).
+				Content(serialized).
 				Build()).
 			Build())
 	if err != nil {
@@ -194,54 +201,6 @@ func (l *Lark) SendMessage(ctx context.Context, chatID string, content string) e
 		return fmt.Errorf("lark send message failed: code=%d msg=%s", resp.Code, resp.Msg)
 	}
 	return nil
-}
-
-// buildPostContent converts markdown to a Lark post message. If the rendered
-// post exceeds maxPostContentSize it falls back to plain text (truncated).
-func buildPostContent(md string) (msgType string, body string, err error) {
-	paragraphs := markdownToPost(md)
-
-	post := map[string]interface{}{
-		"zh_cn": map[string]interface{}{
-			"content": paragraphs,
-		},
-	}
-	serialized, err := sonic.MarshalString(post)
-	if err != nil {
-		return "", "", err
-	}
-
-	if len(serialized) <= maxPostContentSize {
-		return larkim.MsgTypePost, serialized, nil
-	}
-
-	// Post too large — truncate paragraphs until it fits.
-	for len(paragraphs) > 1 {
-		paragraphs = paragraphs[:len(paragraphs)-1]
-		post["zh_cn"] = map[string]interface{}{
-			"content": append(paragraphs, []postElement{
-				{"tag": "text", "text": "… [truncated]"},
-			}),
-		}
-		serialized, err = sonic.MarshalString(post)
-		if err != nil {
-			return "", "", err
-		}
-		if len(serialized) <= maxPostContentSize {
-			return larkim.MsgTypePost, serialized, nil
-		}
-	}
-
-	// Still too large — fall back to plain text, truncated.
-	text := md
-	if len(text) > maxPostContentSize-20 {
-		text = text[:maxPostContentSize-20] + "… [truncated]"
-	}
-	plain, err := sonic.MarshalString(map[string]string{"text": text})
-	if err != nil {
-		return "", "", err
-	}
-	return larkim.MsgTypeText, plain, nil
 }
 
 func (l *Lark) SendChatAction(_ context.Context, _ string, _ channel.ChatAction) error {
@@ -348,6 +307,22 @@ func (l *Lark) handleMessage(ctx context.Context, event *larkim.P2MessageReceive
 		// Strip @mention placeholders (e.g. @_user_1) from group messages.
 		content = stripMentionPlaceholders(text, msg.Mentions)
 
+	case "post":
+		text, imageKeys, err := extractPost(msg.Content)
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:lark] failed to extract post: %v", err)
+			return
+		}
+		content = stripMentionPlaceholders(text, msg.Mentions)
+		for _, key := range imageKeys {
+			att, dlErr := l.downloadResource(ctx, *msg.MessageId, key, "image", channel.AttachmentImage, "image/png")
+			if dlErr != nil {
+				logs.CtxWarn(ctx, "[channel:lark] download post image: %v", dlErr)
+			} else if att != nil {
+				attachments = append(attachments, *att)
+			}
+		}
+
 	case "image":
 		imageKey, err := extractKey(msg.Content, "image_key")
 		if err != nil {
@@ -370,6 +345,19 @@ func (l *Lark) handleMessage(ctx context.Context, event *larkim.P2MessageReceive
 		att, err := l.downloadResource(ctx, *msg.MessageId, fileKey, "file", channel.AttachmentVoice, "audio/ogg")
 		if err != nil {
 			logs.CtxWarn(ctx, "[channel:lark] download audio: %v", err)
+		} else if att != nil {
+			attachments = append(attachments, *att)
+		}
+
+	case "file":
+		fileKey, err := extractKey(msg.Content, "file_key")
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:lark] failed to extract file key: %v", err)
+			return
+		}
+		att, err := l.downloadResource(ctx, *msg.MessageId, fileKey, "file", channel.AttachmentFile, "application/octet-stream")
+		if err != nil {
+			logs.CtxWarn(ctx, "[channel:lark] download file: %v", err)
 		} else if att != nil {
 			attachments = append(attachments, *att)
 		}
@@ -526,6 +514,73 @@ func extractText(content *string) (string, error) {
 		return "", fmt.Errorf("unmarshal lark message content: %w", err)
 	}
 	return parsed.Text, nil
+}
+
+// extractPost parses a Lark "post" (rich text) message content.
+// The format is {"<locale>":{"title":"...","content":[[elements]]}}.
+// It flattens all text/link/at elements into plain text and collects image keys.
+func extractPost(content *string) (text string, imageKeys []string, err error) {
+	if content == nil || *content == "" {
+		return "", nil, nil
+	}
+
+	// Post content is keyed by locale (zh_cn, en_us, ja_jp, etc.).
+	var locales map[string]struct {
+		Title   string              `json:"title"`
+		Content [][]postContentItem `json:"content"`
+	}
+	if err := sonic.UnmarshalString(*content, &locales); err != nil {
+		return "", nil, fmt.Errorf("unmarshal post content: %w", err)
+	}
+
+	// Pick the first available locale.
+	for _, locale := range locales {
+		var b strings.Builder
+		if locale.Title != "" {
+			b.WriteString(locale.Title)
+			b.WriteByte('\n')
+		}
+		for i, paragraph := range locale.Content {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
+			for _, elem := range paragraph {
+				switch elem.Tag {
+				case "text":
+					b.WriteString(elem.Text)
+				case "a":
+					if elem.Href != "" {
+						b.WriteString(elem.Text + "(" + elem.Href + ")")
+					} else {
+						b.WriteString(elem.Text)
+					}
+				case "at":
+					if elem.UserName != "" {
+						b.WriteString("@" + elem.UserName)
+					} else if elem.UserID != "" {
+						b.WriteString("@" + elem.UserID)
+					}
+				case "img":
+					if elem.ImageKey != "" {
+						imageKeys = append(imageKeys, elem.ImageKey)
+					}
+				}
+			}
+		}
+		return strings.TrimSpace(b.String()), imageKeys, nil
+	}
+
+	return "", nil, nil
+}
+
+// postContentItem represents a single element inside a Lark post paragraph.
+type postContentItem struct {
+	Tag      string `json:"tag"`
+	Text     string `json:"text,omitempty"`
+	Href     string `json:"href,omitempty"`
+	UserID   string `json:"user_id,omitempty"`
+	UserName string `json:"user_name,omitempty"`
+	ImageKey string `json:"image_key,omitempty"`
 }
 
 // extractKey parses a named key from the JSON content field.

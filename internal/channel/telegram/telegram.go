@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +17,7 @@ import (
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/pkg/logs"
+	"github.com/tgifai/friday/internal/pkg/utils"
 )
 
 const (
@@ -630,22 +629,7 @@ func (c *Telegram) downloadFile(ctx context.Context, fileID string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("get file: %w", err)
 	}
-	link := c.bot.FileDownloadLink(file)
-
-	resp, err := http.Get(link) //nolint:gosec // URL comes from Telegram API
-	if err != nil {
-		return nil, fmt.Errorf("download file: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download file: HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read file body: %w", err)
-	}
-	return data, nil
+	return utils.DownloadFile(ctx, c.bot.FileDownloadLink(file))
 }
 
 // isGroupChat returns true for group and supergroup chat types.

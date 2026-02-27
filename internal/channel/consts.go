@@ -28,6 +28,7 @@ type AttachmentType string
 const (
 	AttachmentImage AttachmentType = "image"
 	AttachmentVoice AttachmentType = "voice"
+	AttachmentFile  AttachmentType = "file"
 )
 
 // Attachment holds downloaded media content from a channel message.

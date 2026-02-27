@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/eino/components/model"
@@ -15,7 +16,11 @@ import (
 	"github.com/tgifai/friday/internal/provider"
 )
 
-const defaultMaxIterations = 25
+const (
+	defaultMaxIterations = 25
+
+	loopNotifyDebounce = time.Second * 3
+)
 
 func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *provider.ModelSpec, sess *session.Session, msg *channel.Message, cfg config.AgentRuntimeConfig) (*channel.Response, error) {
 	// Inject session into context so CLI providers can access metadata.
@@ -32,6 +37,8 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 
 	var finalMsg *schema.Message
 	msgs := make([]*schema.Message, 0, 4)
+	notifier := &loopNotifier{agent: ag, chatID: msg.ChatID}
+	notifier.channel, _ = channel.Get(msg.ChannelID)
 
 	opts := []model.Option{
 		model.WithTools(ag.tools.ListToolInfos()),
@@ -51,7 +58,7 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 		str, _ := sonic.MarshalString(llmResp)
 		logs.CtxDebug(ctx, "[agent:%s:%d] llmResp: %+v", ag.id, iter, str)
 		if len(llmResp.ToolCalls) > 0 {
-			// TODO send msg to user when calling tools
+			notifier.send(ctx, llmResp.Content, llmResp.ReasoningContent)
 			msgs = append(msgs, llmResp)
 			for _, call := range llmResp.ToolCalls {
 				logs.CtxDebug(ctx, "[agent:%s:%d] call: %+v", ag.id, iter, call)
@@ -84,7 +91,7 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 	if finalMsg == nil {
 		// Iteration limit reached — ask LLM to summarize progress without tools.
 		logs.CtxWarn(ctx, "[agent:%s] iteration limit (%d) reached, requesting summary", ag.id, maxIterations)
-		finalMsg = ag.runSummary(ctx, p, modelSpec, append(promptMsgs, msgs...))
+		finalMsg = ag.runLoopSummary(ctx, p, modelSpec, append(promptMsgs, msgs...))
 	}
 
 	// Commit msgs tool-call turns and the final response to session.
@@ -101,9 +108,9 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 	}, nil
 }
 
-// runSummary makes one final LLM call without tools to summarize what has
+// runLoopSummary makes one final LLM call without tools to summarize what has
 // been accomplished and what remains when the iteration limit is exceeded.
-func (ag *Agent) runSummary(ctx context.Context,
+func (ag *Agent) runLoopSummary(ctx context.Context,
 	p provider.Provider,
 	modelSpec *provider.ModelSpec,
 	msgs []*schema.Message,
@@ -122,4 +129,29 @@ func (ag *Agent) runSummary(ctx context.Context,
 		}
 	}
 	return resp
+}
+
+type loopNotifier struct {
+	agent    *Agent
+	channel  channel.Channel
+	chatID   string
+	lastSend time.Time
+}
+
+// send delivers text to the user if the throttle window has elapsed.
+// Empty text or missing channel is silently ignored.
+func (n *loopNotifier) send(ctx context.Context, content, reasoning string) {
+	if content == "" {
+		content = reasoning
+	}
+	if n.channel == nil || content == "" {
+		return
+	}
+	if now := time.Now(); now.Sub(n.lastSend) >= loopNotifyDebounce {
+		if err := n.channel.SendMessage(ctx, n.chatID, content); err != nil {
+			logs.CtxDebug(ctx, "[agent:%s] progress notify failed: %v", n.agent.id, err)
+			return
+		}
+		n.lastSend = now
+	}
 }
