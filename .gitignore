@@ -38,6 +38,7 @@ coverage-*.out
 
 .tmp
 .claude/
+.worktrees/
 workspace/
 
 # macOS app build artifacts
