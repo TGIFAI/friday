@@ -14,6 +14,19 @@ type Route struct {
 	Handler app.HandlerFunc
 }
 
+// BotCommand describes a command for platform-native registration.
+type BotCommand struct {
+	Command     string // e.g. "start" (without leading slash)
+	Description string
+}
+
+// CommandRegistrar is an opt-in interface for channels that support
+// native bot command registration (e.g. Telegram SetMyCommands).
+type CommandRegistrar interface {
+	SetCommands(ctx context.Context, commands []BotCommand) error
+	DeleteCommands(ctx context.Context) error
+}
+
 // Channel defines a runtime adapter between Friday and a chat platform.
 // Implementations are responsible for receiving inbound events and sending
 // outbound responses for a specific channel provider (for example Telegram).

@@ -20,6 +20,7 @@ import (
 	"github.com/tgifai/friday/internal/agent"
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/channel"
+	"github.com/tgifai/friday/internal/gateway/cmd_hub"
 	httpChannel "github.com/tgifai/friday/internal/channel/http"
 	"github.com/tgifai/friday/internal/channel/lark"
 	"github.com/tgifai/friday/internal/channel/telegram"
@@ -40,7 +41,7 @@ import (
 
 type Gateway struct {
 	agents     sync.Map
-	commands   *CommandRouter
+	commands   *cmd_hub.Hub
 	security   *SecurityGuard
 	msgQueue   *MessageQueue
 	httpServer *hzServer.Hertz
@@ -85,8 +86,8 @@ func NewGateway(cfg config.GatewayConfig) *Gateway {
 	}
 	hzSvr := hzServer.Default(hzOpts...)
 
-	commands := newCommandRouter()
-	registerBuiltinCommands(commands)
+	commands := cmd_hub.NewHub()
+	cmd_hub.RegisterBuiltins(commands)
 
 	gw := &Gateway{
 		httpServer: hzSvr,
@@ -124,6 +125,8 @@ func (gw *Gateway) Start(ctx context.Context) error {
 	if err := gw.initChannels(gw.runCtx, cfg.Channels); err != nil {
 		return fmt.Errorf("init channels: %w", err)
 	}
+
+	gw.commands.SyncToChannels(gw.runCtx)
 
 	go gw.httpServer.Spin()
 
@@ -490,6 +493,16 @@ func (gw *Gateway) processCronMessage(ctx context.Context, msg *channel.Message)
 	}
 
 	return nil
+}
+
+// Commands implements cmd_hub.HandlerDeps.
+func (gw *Gateway) Commands() *cmd_hub.Hub {
+	return gw.commands
+}
+
+// GetAgentByChannel implements cmd_hub.HandlerDeps.
+func (gw *Gateway) GetAgentByChannel(channelID string) (cmd_hub.AgentInfo, error) {
+	return gw.getAgentByChannel(channelID)
 }
 
 func (gw *Gateway) getAgentByChannel(channelID string) (*agent.Agent, error) {
