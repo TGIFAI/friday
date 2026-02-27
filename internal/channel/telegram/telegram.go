@@ -33,8 +33,6 @@ const (
 
 var (
 	_ channel.Channel = (*Telegram)(nil)
-
-	parseMode = models.ParseModeMarkdown
 )
 
 type Telegram struct {
@@ -553,7 +551,7 @@ func (c *Telegram) dispatchMessage(ctx context.Context, b *bot.Bot, chatID int64
 				_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 					ChatID:    chatID,
 					Text:      "Sorry, an error occurred while processing your message.",
-					ParseMode: parseMode,
+					ParseMode: models.ParseModeMarkdown,
 				})
 			}
 		}

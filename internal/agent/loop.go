@@ -13,98 +13,91 @@ import (
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/provider"
-	"github.com/tgifai/friday/internal/provider/cli"
 )
 
 const defaultMaxIterations = 25
 
-func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.ModelSpec, sess *session.Session, msg *channel.Message, cfg config.AgentRuntimeConfig) (*channel.Response, error) {
+func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *provider.ModelSpec, sess *session.Session, msg *channel.Message, cfg config.AgentRuntimeConfig) (*channel.Response, error) {
+	// Inject session into context so CLI providers can access metadata.
+	ctx = session.WithContext(ctx, sess)
+	promptMsgs := ag.buildMessages(sess, msg)
+
 	maxIterations := defaultMaxIterations
 	if cfg.MaxIterations > 0 {
 		maxIterations = cfg.MaxIterations
 	}
 
-	// Inject session into context so CLI providers can access metadata.
-	ctx = cli.WithSession(ctx, sess)
-
-	// The current user message has already been appended to the session in ProcessMessage.
-	msgs := ag.buildMessages(sess, msg)
-
 	logs.CtxDebug(ctx, "[agent:%s] sending to provider %s:%s, messages count: %d, max_iterations: %d",
-		ag.id, ms.ProviderID, ms.ModelName, len(msgs), maxIterations)
+		ag.id, modelSpec.ProviderID, modelSpec.ModelName, len(promptMsgs), maxIterations)
 
-	// Track intermediate tool-call turns so they can be committed to the
-	// session after the loop completes successfully. We batch-append rather
-	// than appending during the loop so that a failed attempt (which may
-	// trigger provider fallback) does not leave orphaned turns in the session.
-	var intermediate []*schema.Message
+	var finalMsg *schema.Message
+	msgs := make([]*schema.Message, 0, 4)
 
-	var finalResp *schema.Message
 	opts := []model.Option{
 		model.WithTools(ag.tools.ListToolInfos()),
 		model.WithToolChoice(schema.ToolChoiceAllowed),
 	}
 	for iter := 0; iter < maxIterations; iter++ {
-		llmResp, err := p.Generate(ctx, ms.ModelName, msgs, opts...)
+		llmResp, err := p.Generate(ctx, modelSpec.ModelName, append(promptMsgs, msgs...), opts...)
 		if err != nil {
-			logs.CtxWarn(ctx, "[agent:%s] LLM call to %s:%s failed: %v", ag.id, ms.ProviderID, ms.ModelName, err)
+			logs.CtxWarn(ctx, "[agent:%s] LLM call to %s:%s failed: %v", ag.id, modelSpec.ProviderID, modelSpec.ModelName, err)
 			return nil, err
 		}
 		if llmResp == nil {
-			logs.CtxWarn(ctx, "[agent:%s] LLM call to %s:%s returned empty response", ag.id, ms.ProviderID, ms.ModelName)
-			return nil, fmt.Errorf("LLM returned empty response from %s:%s", ms.ProviderID, ms.ModelName)
+			logs.CtxWarn(ctx, "[agent:%s] LLM call to %s:%s returned empty response", ag.id, modelSpec.ProviderID, modelSpec.ModelName)
+			return nil, fmt.Errorf("LLM returned empty response from %s:%s", modelSpec.ProviderID, modelSpec.ModelName)
 		}
 
 		str, _ := sonic.MarshalString(llmResp)
 		logs.CtxDebug(ctx, "[agent:%s:%d] llmResp: %+v", ag.id, iter, str)
 		if len(llmResp.ToolCalls) > 0 {
+			// TODO send msg to user when calling tools
 			msgs = append(msgs, llmResp)
-			intermediate = append(intermediate, llmResp)
 			for _, call := range llmResp.ToolCalls {
 				logs.CtxDebug(ctx, "[agent:%s:%d] call: %+v", ag.id, iter, call)
 				res, callErr := ag.tools.ExecuteToolCall(ctx, &call)
-				resMsg := &schema.Message{
+				callMsg := &schema.Message{
 					Role:       schema.Tool,
 					ToolName:   call.Function.Name,
 					ToolCallID: call.ID,
 				}
 				if callErr != nil {
 					logs.CtxWarn(ctx, "[agent:%s] tool %q (call_id=%s) failed: %v", ag.id, call.Function.Name, call.ID, callErr)
-					resMsg.Content = "ERROR: " + callErr.Error()
+					callMsg.Content = "ERROR: " + callErr.Error()
 				} else {
 					jsonStr, marshalErr := sonic.MarshalString(res)
 					if marshalErr != nil || jsonStr == "" {
-						resMsg.Content = "{}"
+						callMsg.Content = "{}"
 					} else {
-						resMsg.Content = jsonStr
+						callMsg.Content = jsonStr
 					}
 				}
-				msgs = append(msgs, resMsg)
-				intermediate = append(intermediate, resMsg)
+				msgs = append(msgs, callMsg)
 			}
 			continue
 		}
 
-		finalResp = llmResp
+		finalMsg = llmResp
 		break
 	}
 
-	if finalResp == nil {
+	if finalMsg == nil {
 		// Iteration limit reached — ask LLM to summarize progress without tools.
 		logs.CtxWarn(ctx, "[agent:%s] iteration limit (%d) reached, requesting summary", ag.id, maxIterations)
-		finalResp = ag.runSummary(ctx, p, ms, msgs)
+		finalMsg = ag.runSummary(ctx, p, modelSpec, append(promptMsgs, msgs...))
 	}
 
-	// Commit intermediate tool-call turns and the final response to session.
-	for _, m := range intermediate {
+	// Commit msgs tool-call turns and the final response to session.
+	for _, m := range msgs {
 		sess.Append(m)
 	}
-	sess.Append(finalResp)
+	sess.Append(finalMsg)
+
 	return &channel.Response{
 		ID:       msg.ID,
-		Content:  finalResp.Content,
-		Model:    ms.ModelName,
-		Provider: ms.ProviderID,
+		Content:  finalMsg.Content,
+		Model:    modelSpec.ModelName,
+		Provider: modelSpec.ProviderID,
 	}, nil
 }
 
@@ -112,7 +105,7 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, ms *provider.
 // been accomplished and what remains when the iteration limit is exceeded.
 func (ag *Agent) runSummary(ctx context.Context,
 	p provider.Provider,
-	ms *provider.ModelSpec,
+	modelSpec *provider.ModelSpec,
 	msgs []*schema.Message,
 ) *schema.Message {
 	msgs = append(msgs, &schema.Message{
@@ -120,7 +113,7 @@ func (ag *Agent) runSummary(ctx context.Context,
 		Content: "You have reached the maximum iteration limit. Please summarize what you have accomplished so far and what still remains to be done.",
 	})
 
-	resp, err := p.Generate(ctx, ms.ModelName, msgs)
+	resp, err := p.Generate(ctx, modelSpec.ModelName, msgs)
 	if err != nil || resp == nil {
 		logs.CtxWarn(ctx, "[agent:%s] summary generation failed: %v", ag.id, err)
 		return &schema.Message{

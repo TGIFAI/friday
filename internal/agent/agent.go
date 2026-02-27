@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -363,57 +362,4 @@ func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 			logs.CtxInfo(ctx, "[agent:%s] consolidation flush triggered at msg count %d", ag.id, count)
 		}
 	}()
-}
-
-// buildUserMessage constructs a schema.Message from a channel message.
-// When attachments are present, it builds a multimodal message with base64-
-// encoded inline data; otherwise it falls back to a plain text message.
-func buildUserMessage(msg *channel.Message) *schema.Message {
-	if len(msg.Attachments) == 0 {
-		return &schema.Message{Role: schema.User, Content: msg.Content}
-	}
-
-	var parts []schema.MessageInputPart
-
-	if msg.Content != "" {
-		parts = append(parts, schema.MessageInputPart{
-			Type: schema.ChatMessagePartTypeText,
-			Text: msg.Content,
-		})
-	}
-
-	for _, att := range msg.Attachments {
-		b64 := base64.StdEncoding.EncodeToString(att.Data)
-		switch att.Type {
-		case channel.AttachmentImage:
-			parts = append(parts, schema.MessageInputPart{
-				Type: schema.ChatMessagePartTypeImageURL,
-				Image: &schema.MessageInputImage{
-					MessagePartCommon: schema.MessagePartCommon{
-						Base64Data: &b64,
-						MIMEType:   att.MIMEType,
-					},
-					Detail: schema.ImageURLDetailAuto,
-				},
-			})
-		case channel.AttachmentVoice:
-			// Most LLM providers (Anthropic, Volcengine, etc.) do not support
-			// audio_url content parts. Instead of sending an unsupported type
-			// that would cause the entire request to fail, we add a text note
-			// indicating an audio message was received.
-			name := att.FileName
-			if name == "" {
-				name = "audio"
-			}
-			parts = append(parts, schema.MessageInputPart{
-				Type: schema.ChatMessagePartTypeText,
-				Text: fmt.Sprintf("[Audio attachment received: %s (%s), but audio input is not supported by the current model]", name, att.MIMEType),
-			})
-		}
-	}
-
-	return &schema.Message{
-		Role:                  schema.User,
-		UserInputMultiContent: parts,
-	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"github.com/tgifai/friday/internal/agent/session"
 
 	"github.com/tgifai/friday/internal/provider"
 )
@@ -42,9 +43,9 @@ func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider
 }
 
 func (p *Provider) ID() string          { return p.config.ID }
-func (p *Provider) Type() provider.Type  { return provider.CLI }
-func (p *Provider) IsAvailable() bool    { return p.backend.Available() }
-func (p *Provider) Close() error         { return nil }
+func (p *Provider) Type() provider.Type { return provider.CLI }
+func (p *Provider) IsAvailable() bool   { return p.backend.Available() }
+func (p *Provider) Close() error        { return nil }
 
 func (p *Provider) ListModels(_ context.Context) ([]provider.ModelInfo, error) {
 	name := p.config.DefaultModel
@@ -68,7 +69,7 @@ func (p *Provider) Generate(ctx context.Context, modelName string, input []*sche
 	defer cancel()
 
 	// Read stored CLI session ID from context-injected session.
-	sess := SessionFromCtx(ctx)
+	sess := session.ExtractFromCtx(ctx)
 	var cliSessionID string
 	if sess != nil {
 		cliSessionID = sess.GetMeta("cli:session_id")

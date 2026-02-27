@@ -37,17 +37,17 @@ type jsonlRecordHeader struct {
 }
 
 type jsonlMetadataRecord struct {
-	Type        string    `json:"_type"`
-	SessionKey  string    `json:"session_key"`
-	AgentID     string    `json:"agent_id,omitempty"`
-	Channel     string    `json:"channel,omitempty"`
-	ChannelID   string    `json:"channel_id,omitempty"`
-	ChatID      string    `json:"chat_id,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	ExpireAt    time.Time `json:"expire_at,omitempty"`
-	MsgCount    int64     `json:"msg_count"`
-	ToolCallCnt int64     `json:"tool_call_count"`
+	Type        string            `json:"_type"`
+	SessionKey  string            `json:"session_key"`
+	AgentID     string            `json:"agent_id,omitempty"`
+	Channel     string            `json:"channel,omitempty"`
+	ChannelID   string            `json:"channel_id,omitempty"`
+	ChatID      string            `json:"chat_id,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	ExpireAt    time.Time         `json:"expire_at,omitempty"`
+	MsgCount    int64             `json:"msg_count"`
+	ToolCallCnt int64             `json:"tool_call_count"`
 	Format      string            `json:"format"`
 	Schema      int               `json:"schema"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
