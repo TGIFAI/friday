@@ -12,25 +12,25 @@ import (
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
-// MCPManager proxies tool calls to external MCP servers.
-type MCPManager struct {
-	manager *Manager
+// MCPTool proxies tool calls to external MCP servers.
+type MCPTool struct {
+	mgr *Manager
 }
 
 // NewMCPTool creates a new MCP tool instance.
-func NewMCPTool() *MCPManager {
-	return &MCPManager{
-		manager: NewManager(),
+func NewMCPTool() *MCPTool {
+	return &MCPTool{
+		mgr: NewManager(),
 	}
 }
 
-func (t *MCPManager) Name() string { return "mcp" }
+func (t *MCPTool) Name() string { return "mcp" }
 
-func (t *MCPManager) Description() string {
+func (t *MCPTool) Description() string {
 	return "Connect to external MCP (Model Context Protocol) servers and call their tools. Supports stdio and HTTP transports. Use list_servers/list_tools to discover available tools, then call_tool to invoke them."
 }
 
-func (t *MCPManager) ToolInfo() *schema.ToolInfo {
+func (t *MCPTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
@@ -82,7 +82,7 @@ func (t *MCPManager) ToolInfo() *schema.ToolInfo {
 	}
 }
 
-func (t *MCPManager) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *MCPTool) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	action := strings.ToLower(strings.TrimSpace(gconv.To[string](args["action"])))
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
@@ -104,7 +104,7 @@ func (t *MCPManager) Execute(ctx context.Context, args map[string]interface{}) (
 	}
 }
 
-func (t *MCPManager) executeConnect(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *MCPTool) executeConnect(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	name := strings.TrimSpace(gconv.To[string](args["name"]))
 	if name == "" {
 		return nil, fmt.Errorf("name is required for connect action")
@@ -146,7 +146,7 @@ func (t *MCPManager) executeConnect(ctx context.Context, args map[string]interfa
 	}
 
 	logs.CtxInfo(ctx, "[tool:mcp] connecting to server %s (%s)", name, transport)
-	if err := t.manager.Connect(ctx, name, cfg); err != nil {
+	if err := t.mgr.Connect(ctx, name, cfg); err != nil {
 		return nil, err
 	}
 
@@ -156,13 +156,13 @@ func (t *MCPManager) executeConnect(ctx context.Context, args map[string]interfa
 	}, nil
 }
 
-func (t *MCPManager) executeDisconnect(args map[string]interface{}) (interface{}, error) {
+func (t *MCPTool) executeDisconnect(args map[string]interface{}) (interface{}, error) {
 	server := strings.TrimSpace(gconv.To[string](args["server"]))
 	if server == "" {
 		return nil, fmt.Errorf("server is required for disconnect action")
 	}
 
-	if err := t.manager.Disconnect(server); err != nil {
+	if err := t.mgr.Disconnect(server); err != nil {
 		return nil, err
 	}
 
@@ -172,8 +172,8 @@ func (t *MCPManager) executeDisconnect(args map[string]interface{}) (interface{}
 	}, nil
 }
 
-func (t *MCPManager) executeListServers() (interface{}, error) {
-	servers := t.manager.List()
+func (t *MCPTool) executeListServers() (interface{}, error) {
+	servers := t.mgr.List()
 	list := make([]map[string]interface{}, 0, len(servers))
 	for _, srv := range servers {
 		entry := map[string]interface{}{
@@ -189,18 +189,18 @@ func (t *MCPManager) executeListServers() (interface{}, error) {
 	return map[string]interface{}{"servers": list}, nil
 }
 
-func (t *MCPManager) executeListTools(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *MCPTool) executeListTools(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName := strings.TrimSpace(gconv.To[string](args["server"]))
 
 	var servers []*Server
 	if serverName != "" {
-		srv, ok := t.manager.Get(serverName)
+		srv, ok := t.mgr.Get(serverName)
 		if !ok {
 			return nil, fmt.Errorf("server %q not found", serverName)
 		}
 		servers = []*Server{srv}
 	} else {
-		servers = t.manager.List()
+		servers = t.mgr.List()
 	}
 
 	result := make([]map[string]interface{}, 0)
@@ -223,7 +223,7 @@ func (t *MCPManager) executeListTools(ctx context.Context, args map[string]inter
 	return map[string]interface{}{"tools": result}, nil
 }
 
-func (t *MCPManager) executeCallTool(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *MCPTool) executeCallTool(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName := strings.TrimSpace(gconv.To[string](args["server"]))
 	if serverName == "" {
 		return nil, fmt.Errorf("server is required for call_tool action")
@@ -233,7 +233,7 @@ func (t *MCPManager) executeCallTool(ctx context.Context, args map[string]interf
 		return nil, fmt.Errorf("tool is required for call_tool action")
 	}
 
-	srv, ok := t.manager.Get(serverName)
+	srv, ok := t.mgr.Get(serverName)
 	if !ok {
 		return nil, fmt.Errorf("server %q not found", serverName)
 	}
@@ -286,7 +286,7 @@ func (t *MCPManager) executeCallTool(ctx context.Context, args map[string]interf
 }
 
 // loadConfig loads MCP server configs from workspace and auto-connects.
-func (t *MCPManager) LoadConfig(ctx context.Context, workspace string) error {
+func (t *MCPTool) LoadConfig(ctx context.Context, workspace string) error {
 	cfg, err := loadConfig(workspace)
 	if err != nil {
 		return err
@@ -296,7 +296,7 @@ func (t *MCPManager) LoadConfig(ctx context.Context, workspace string) error {
 	}
 
 	for name, sc := range cfg.MCPServers {
-		if err := t.manager.Connect(ctx, name, sc); err != nil {
+		if err := t.mgr.Connect(ctx, name, sc); err != nil {
 			logs.CtxWarn(ctx, "[tool:mcp] failed to connect to %s: %v", name, err)
 		} else {
 			logs.CtxInfo(ctx, "[tool:mcp] connected to %s (%s)", name, sc.Transport)
@@ -306,6 +306,6 @@ func (t *MCPManager) LoadConfig(ctx context.Context, workspace string) error {
 }
 
 // Close disconnects all MCP servers.
-func (t *MCPManager) Close() error {
-	return t.manager.Close()
+func (t *MCPTool) Close() error {
+	return t.mgr.Close()
 }

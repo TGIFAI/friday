@@ -14,7 +14,7 @@ type Manager struct {
 	mu      sync.RWMutex
 }
 
-// NewManager creates a new connection pool manager.
+// NewManager creates a new connection pool mgr.
 func NewManager() *Manager {
 	return &Manager{
 		servers: make(map[string]*Server, maxServers),

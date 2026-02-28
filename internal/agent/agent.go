@@ -43,7 +43,7 @@ type Agent struct {
 
 	tools   *tool.Registry
 	skills  *skill.Registry
-	mcpMgr  *mcpx.MCPManager
+	mcpMgr  *mcpx.MCPTool
 	sessMgr *session.Manager
 
 	enqueue          EnqueueFunc // allows agent to self-enqueue messages (set by gateway)
