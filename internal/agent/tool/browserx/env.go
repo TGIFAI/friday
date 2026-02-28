@@ -6,6 +6,25 @@ import (
 	"runtime"
 )
 
+// needsNoSandbox returns true when Chrome's OS-level sandbox cannot work.
+// This is the case on Linux when running as root (common in CI containers)
+// or when a CI environment variable is detected.
+func needsNoSandbox() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	if os.Geteuid() == 0 {
+		return true
+	}
+	// Common CI environment variables.
+	for _, key := range []string{"CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL"} {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // canRunHeaded checks if the current environment supports headed (GUI) browser mode.
 func canRunHeaded() (bool, string) {
 	switch runtime.GOOS {

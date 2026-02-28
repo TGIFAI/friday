@@ -35,6 +35,11 @@ func newStealthLauncher(headless bool) *launcher.Launcher {
 	// Language.
 	l.Set(flags.Flag("lang"), "en-US")
 
+	// Disable Chrome sandbox in environments that don't support it (CI containers, root).
+	if needsNoSandbox() {
+		l.Set(flags.Flag("no-sandbox"))
+	}
+
 	return l
 }
 
