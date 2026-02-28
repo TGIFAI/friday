@@ -17,6 +17,7 @@ import (
 	"github.com/tgifai/friday/internal/agent/tool"
 	"github.com/tgifai/friday/internal/agent/tool/agentx"
 	"github.com/tgifai/friday/internal/agent/tool/cronx"
+	"github.com/tgifai/friday/internal/agent/tool/mcpx"
 	"github.com/tgifai/friday/internal/agent/tool/filex"
 	"github.com/tgifai/friday/internal/agent/tool/httpx"
 	"github.com/tgifai/friday/internal/agent/tool/msgx"
@@ -43,6 +44,8 @@ type Agent struct {
 	tools  *tool.Registry
 	skills *skill.Registry
 	sess   *session.Manager
+
+	mcpTool *mcpx.MCPTool
 
 	enqueue          EnqueueFunc // allows agent to self-enqueue messages (set by gateway)
 	consolidateEvery int
@@ -158,6 +161,13 @@ func (ag *Agent) Init(ctx context.Context) error {
 	// agent delegation tools
 	_ = ag.tools.Register(agentx.NewAgentTool(ag.workspace))
 
+	// MCP server tools
+	ag.mcpTool = mcpx.NewMCPTool()
+	if err := ag.mcpTool.LoadConfig(ctx, ag.workspace); err != nil {
+		logs.Warn("[agent:%s] failed to load mcp config: %v", ag.id, err)
+	}
+	_ = ag.tools.Register(ag.mcpTool)
+
 	return nil
 }
 
@@ -221,6 +231,14 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 	ag.maybeEnqueueFlush(ctx, sess)
 
 	return resp, nil
+}
+
+// Close releases resources held by the agent (e.g. MCP server connections).
+func (ag *Agent) Close() error {
+	if ag.mcpTool != nil {
+		return ag.mcpTool.Close()
+	}
+	return nil
 }
 
 // SetEnqueue gives the agent the ability to enqueue messages into the gateway
