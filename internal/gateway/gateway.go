@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/tgifai/friday/internal/agent"
+	"github.com/tgifai/friday/internal/agent/tool/browserx"
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/channel"
 	httpChannel "github.com/tgifai/friday/internal/channel/http"
@@ -141,6 +142,9 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 				logs.CtxWarn(ctx, "[gateway] stop channel %s error: %v", ch.ID(), err)
 			}
 		}
+
+		// Close all browser sessions.
+		browserx.Shutdown()
 
 		if err := gw.httpServer.Shutdown(ctx); err != nil {
 			logs.CtxWarn(ctx, "[gateway] shutdown http server error: %v", err)
