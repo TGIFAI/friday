@@ -40,7 +40,6 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 	notifier := &loopNotifier{agent: ag, chatID: msg.ChatID}
 	notifier.channel, _ = channel.Get(msg.ChannelID)
 
-	p.RegisterTools(ag.tools.ListToolInfos())
 	opts := []model.Option{
 		model.WithToolChoice(schema.ToolChoiceAllowed),
 	}

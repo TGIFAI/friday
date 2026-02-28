@@ -254,6 +254,7 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 			logs.CtxWarn(ctx, "[agent:%s] provider not found: %s", ag.id, ms.ProviderID)
 			continue
 		}
+		prov.RegisterTools(ag.tools.ListToolInfos())
 		resp, err = ag.runLoop(ctx, prov, ms, sess, msg, agCfg.Config)
 		if err != nil {
 			logs.CtxWarn(ctx, "[agent:%s] model %s failed: %v", ag.id, ms, err)

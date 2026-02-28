@@ -188,7 +188,7 @@ func (p *Provider) getOrCreatePrefixCache(ctx context.Context, chatModel *arkmod
 func extractSystemMessages(msgs []*schema.Message) []*schema.Message {
 	var result []*schema.Message
 	for _, m := range msgs {
-		if m.Role == schema.System {
+		if m.Role == schema.System && m.Extra[provider.L0Cache] == true {
 			result = append(result, m)
 		}
 	}
