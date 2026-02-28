@@ -17,9 +17,9 @@ import (
 	"github.com/tgifai/friday/internal/agent/tool"
 	"github.com/tgifai/friday/internal/agent/tool/agentx"
 	"github.com/tgifai/friday/internal/agent/tool/cronx"
-	"github.com/tgifai/friday/internal/agent/tool/mcpx"
 	"github.com/tgifai/friday/internal/agent/tool/filex"
 	"github.com/tgifai/friday/internal/agent/tool/httpx"
+	"github.com/tgifai/friday/internal/agent/tool/mcpx"
 	"github.com/tgifai/friday/internal/agent/tool/msgx"
 	"github.com/tgifai/friday/internal/agent/tool/qmdx"
 	"github.com/tgifai/friday/internal/agent/tool/shellx"
@@ -41,11 +41,10 @@ type Agent struct {
 	name      string
 	workspace string
 
-	tools  *tool.Registry
-	skills *skill.Registry
-	sess   *session.Manager
-
-	mcpTool *mcpx.MCPTool
+	tools   *tool.Registry
+	skills  *skill.Registry
+	mcpMgr  *mcpx.MCPManager
+	sessMgr *session.Manager
 
 	enqueue          EnqueueFunc // allows agent to self-enqueue messages (set by gateway)
 	consolidateEvery int
@@ -86,7 +85,7 @@ func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
 		id:               cfg.ID,
 		name:             cfg.Name,
 		workspace:        cfg.Workspace,
-		sess:             sessMgr,
+		sessMgr:          sessMgr,
 		tools:            tool.NewRegistry(),
 		skills:           skill.NewRegistry(cfg.Workspace),
 		consolidateEvery: consolidateEvery,
@@ -110,8 +109,8 @@ func (ag *Agent) Workspace() string {
 
 func (ag *Agent) Init(ctx context.Context) error {
 	// Start session GC if TTL is configured.
-	if ag.sess.TTL() > 0 {
-		ag.sess.StartGCLoop(ctx, 0) // 0 = default 10min interval
+	if ag.sessMgr.TTL() > 0 {
+		ag.sessMgr.StartGCLoop(ctx, 0) // 0 = default 10min interval
 	}
 
 	// skills
@@ -162,11 +161,11 @@ func (ag *Agent) Init(ctx context.Context) error {
 	_ = ag.tools.Register(agentx.NewAgentTool(ag.workspace))
 
 	// MCP server tools
-	ag.mcpTool = mcpx.NewMCPTool()
-	if err := ag.mcpTool.LoadConfig(ctx, ag.workspace); err != nil {
+	ag.mcpMgr = mcpx.NewMCPTool()
+	if err := ag.mcpMgr.LoadConfig(ctx, ag.workspace); err != nil {
 		logs.Warn("[agent:%s] failed to load mcp config: %v", ag.id, err)
 	}
-	_ = ag.tools.Register(ag.mcpTool)
+	_ = ag.tools.Register(ag.mcpMgr)
 
 	return nil
 }
@@ -174,7 +173,7 @@ func (ag *Agent) Init(ctx context.Context) error {
 func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*channel.Response, error) {
 	logs.CtxDebug(ctx, "[agent:%s] received message from channel %s, user %s: %s",
 		ag.id, string(msg.ChannelType), msg.UserID, utils.Truncate80(msg.Content))
-	if ag.sess == nil {
+	if ag.sessMgr == nil {
 		return nil, fmt.Errorf("session manager is not initialized for agent: %s", ag.id)
 	}
 	cfg, err := config.Get()
@@ -187,10 +186,10 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 	}
 
 	// get or create current session
-	sess := ag.sess.GetOrCreateFor(msg.ChannelType, msg.ChannelID, msg.ChatID)
+	sess := ag.sessMgr.GetOrCreateFor(msg.ChannelType, msg.ChannelID, msg.ChatID)
 	msg.SessionKey = sess.SessionKey
 	defer func() {
-		if err := ag.sess.Save(sess); err != nil {
+		if err := ag.sessMgr.Save(sess); err != nil {
 			logs.CtxWarn(ctx, "[agent:%s] failed to persist session: %v", ag.id, err)
 		}
 	}()
@@ -235,8 +234,8 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 
 // Close releases resources held by the agent (e.g. MCP server connections).
 func (ag *Agent) Close() error {
-	if ag.mcpTool != nil {
-		return ag.mcpTool.Close()
+	if ag.mcpMgr != nil {
+		return ag.mcpMgr.Close()
 	}
 	return nil
 }
@@ -251,7 +250,7 @@ func (ag *Agent) SetEnqueue(fn EnqueueFunc) {
 // Before clearing, it archives a brief summary of user messages to today's
 // daily memory file. No LLM call is made.
 func (ag *Agent) ResetSession(ctx context.Context, msg *channel.Message) (string, error) {
-	sess := ag.sess.GetOrCreateFor(msg.ChannelType, msg.ChannelID, msg.ChatID)
+	sess := ag.sessMgr.GetOrCreateFor(msg.ChannelType, msg.ChannelID, msg.ChatID)
 
 	history := sess.History()
 	msgCount := sess.MsgCount()
@@ -265,7 +264,7 @@ func (ag *Agent) ResetSession(ctx context.Context, msg *channel.Message) (string
 
 	sess.Clear()
 
-	if err := ag.sess.Save(sess); err != nil {
+	if err := ag.sessMgr.Save(sess); err != nil {
 		return "", fmt.Errorf("save cleared session: %w", err)
 	}
 

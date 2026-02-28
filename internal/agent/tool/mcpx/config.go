@@ -17,15 +17,15 @@ type ServerConfig struct {
 	URL       string            `json:"url"`       // http only
 }
 
-// Config holds all MCP server definitions loaded from workspace/.friday/mcp.json.
+// Config holds all MCP server definitions loaded from <AGENT_WORKSPACE>/mcp.json.
 type Config struct {
 	MCPServers map[string]ServerConfig `json:"mcpServers"`
 }
 
-// LoadConfig reads MCP server configuration from workspace/.friday/mcp.json.
+// loadConfig reads MCP server configuration from <AGENT_WORKSPACE>/mcp.json.
 // Returns nil (not error) if the file doesn't exist.
-func LoadConfig(workspace string) (*Config, error) {
-	p := filepath.Join(workspace, ".friday", "mcp.json")
+func loadConfig(workspace string) (*Config, error) {
+	p := filepath.Join(workspace, "mcp.json")
 
 	data, err := os.ReadFile(p)
 	if err != nil {

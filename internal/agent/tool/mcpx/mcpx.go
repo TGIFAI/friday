@@ -12,25 +12,25 @@ import (
 	"github.com/tgifai/friday/internal/pkg/logs"
 )
 
-// MCPTool proxies tool calls to external MCP servers.
-type MCPTool struct {
+// MCPManager proxies tool calls to external MCP servers.
+type MCPManager struct {
 	manager *Manager
 }
 
 // NewMCPTool creates a new MCP tool instance.
-func NewMCPTool() *MCPTool {
-	return &MCPTool{
+func NewMCPTool() *MCPManager {
+	return &MCPManager{
 		manager: NewManager(),
 	}
 }
 
-func (t *MCPTool) Name() string { return "mcp" }
+func (t *MCPManager) Name() string { return "mcp" }
 
-func (t *MCPTool) Description() string {
+func (t *MCPManager) Description() string {
 	return "Connect to external MCP (Model Context Protocol) servers and call their tools. Supports stdio and HTTP transports. Use list_servers/list_tools to discover available tools, then call_tool to invoke them."
 }
 
-func (t *MCPTool) ToolInfo() *schema.ToolInfo {
+func (t *MCPManager) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
@@ -82,7 +82,7 @@ func (t *MCPTool) ToolInfo() *schema.ToolInfo {
 	}
 }
 
-func (t *MCPTool) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *MCPManager) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	action := strings.ToLower(strings.TrimSpace(gconv.To[string](args["action"])))
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
@@ -104,7 +104,7 @@ func (t *MCPTool) Execute(ctx context.Context, args map[string]interface{}) (int
 	}
 }
 
-func (t *MCPTool) executeConnect(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *MCPManager) executeConnect(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	name := strings.TrimSpace(gconv.To[string](args["name"]))
 	if name == "" {
 		return nil, fmt.Errorf("name is required for connect action")
@@ -156,7 +156,7 @@ func (t *MCPTool) executeConnect(ctx context.Context, args map[string]interface{
 	}, nil
 }
 
-func (t *MCPTool) executeDisconnect(args map[string]interface{}) (interface{}, error) {
+func (t *MCPManager) executeDisconnect(args map[string]interface{}) (interface{}, error) {
 	server := strings.TrimSpace(gconv.To[string](args["server"]))
 	if server == "" {
 		return nil, fmt.Errorf("server is required for disconnect action")
@@ -172,7 +172,7 @@ func (t *MCPTool) executeDisconnect(args map[string]interface{}) (interface{}, e
 	}, nil
 }
 
-func (t *MCPTool) executeListServers() (interface{}, error) {
+func (t *MCPManager) executeListServers() (interface{}, error) {
 	servers := t.manager.List()
 	list := make([]map[string]interface{}, 0, len(servers))
 	for _, srv := range servers {
@@ -189,7 +189,7 @@ func (t *MCPTool) executeListServers() (interface{}, error) {
 	return map[string]interface{}{"servers": list}, nil
 }
 
-func (t *MCPTool) executeListTools(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *MCPManager) executeListTools(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName := strings.TrimSpace(gconv.To[string](args["server"]))
 
 	var servers []*Server
@@ -223,7 +223,7 @@ func (t *MCPTool) executeListTools(ctx context.Context, args map[string]interfac
 	return map[string]interface{}{"tools": result}, nil
 }
 
-func (t *MCPTool) executeCallTool(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+func (t *MCPManager) executeCallTool(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName := strings.TrimSpace(gconv.To[string](args["server"]))
 	if serverName == "" {
 		return nil, fmt.Errorf("server is required for call_tool action")
@@ -285,9 +285,9 @@ func (t *MCPTool) executeCallTool(ctx context.Context, args map[string]interface
 	return result, nil
 }
 
-// LoadConfig loads MCP server configs from workspace and auto-connects.
-func (t *MCPTool) LoadConfig(ctx context.Context, workspace string) error {
-	cfg, err := LoadConfig(workspace)
+// loadConfig loads MCP server configs from workspace and auto-connects.
+func (t *MCPManager) LoadConfig(ctx context.Context, workspace string) error {
+	cfg, err := loadConfig(workspace)
 	if err != nil {
 		return err
 	}
@@ -306,6 +306,6 @@ func (t *MCPTool) LoadConfig(ctx context.Context, workspace string) error {
 }
 
 // Close disconnects all MCP servers.
-func (t *MCPTool) Close() error {
+func (t *MCPManager) Close() error {
 	return t.manager.Close()
 }
