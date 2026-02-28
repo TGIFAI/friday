@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	arkmodel "github.com/cloudwego/eino-ext/components/model/ark"
 	"github.com/cloudwego/eino/components/model"
@@ -15,16 +16,22 @@ import (
 
 var _ provider.Provider = (*Provider)(nil)
 
+// prefixCacheEntry holds a per-model prefix cache state with expiry tracking.
+// The entry-level mutex serialises CreatePrefixCache calls for a single model
+// without blocking other models.
+type prefixCacheEntry struct {
+	mu         sync.Mutex
+	responseID string
+	expiresAt  time.Time
+}
+
 type Provider struct {
 	config      Config
 	modelMap    map[string]model.ToolCallingChatModel
 	rawModelMap map[string]*arkmodel.ResponsesAPIChatModel
 	tools       []*schema.ToolInfo
-	// cacheResponseIDs stores prefix cache response IDs per model name.
-	// Populated lazily on the first Generate/Stream call when PrefixCacheEnabled is true.
-	cacheResponseIDs map[string]string
-	prefixCacheOnce  map[string]*sync.Once
-	mu               sync.RWMutex
+	prefixCache map[string]*prefixCacheEntry
+	mu          sync.RWMutex
 }
 
 func (p *Provider) RegisterTools(tools []*schema.ToolInfo) {
@@ -40,11 +47,10 @@ func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider
 	}
 
 	return &Provider{
-		config:           *cfg,
-		modelMap:         make(map[string]model.ToolCallingChatModel, 4),
-		rawModelMap:      make(map[string]*arkmodel.ResponsesAPIChatModel, 4),
-		cacheResponseIDs: make(map[string]string, 4),
-		prefixCacheOnce:  make(map[string]*sync.Once, 4),
+		config:      *cfg,
+		modelMap:    make(map[string]model.ToolCallingChatModel, 4),
+		rawModelMap: make(map[string]*arkmodel.ResponsesAPIChatModel, 4),
+		prefixCache: make(map[string]*prefixCacheEntry, 4),
 	}, nil
 }
 
@@ -142,53 +148,59 @@ func (p *Provider) appendPrefixCacheOpts(ctx context.Context, modelName string, 
 	return opts
 }
 
-// getOrCreatePrefixCache returns an existing cached response ID or attempts to
-// create a new prefix cache from system messages via the ResponsesAPI.
-// Uses sync.Once per model to guarantee exactly one CreatePrefixCache call.
+// getOrCreatePrefixCache returns a valid cached response ID for the given model,
+// creating or refreshing the prefix cache as needed. It is safe for concurrent
+// use: a per-model mutex serialises CreatePrefixCache calls so that different
+// models never block each other.
 func (p *Provider) getOrCreatePrefixCache(ctx context.Context, chatModel *arkmodel.ResponsesAPIChatModel, modelName string, input []*schema.Message) string {
-	// Fast path: cache already exists.
+	now := time.Now()
+
+	// Hot path: entry exists and has not expired.
 	p.mu.RLock()
-	if id, ok := p.cacheResponseIDs[modelName]; ok {
+	entry := p.prefixCache[modelName]
+	if entry != nil && entry.responseID != "" && now.Before(entry.expiresAt) {
 		p.mu.RUnlock()
-		return id
+		return entry.responseID
 	}
 	p.mu.RUnlock()
 
-	// Get or create a sync.Once for this model.
+	// Ensure an entry struct exists for this model.
 	p.mu.Lock()
-	if id, ok := p.cacheResponseIDs[modelName]; ok {
-		p.mu.Unlock()
-		return id
-	}
-	once, ok := p.prefixCacheOnce[modelName]
-	if !ok {
-		once = &sync.Once{}
-		p.prefixCacheOnce[modelName] = once
+	entry = p.prefixCache[modelName]
+	if entry == nil {
+		entry = &prefixCacheEntry{}
+		p.prefixCache[modelName] = entry
 	}
 	p.mu.Unlock()
 
-	// Exactly one goroutine executes CreatePrefixCache; others block here.
-	once.Do(func() {
-		systemMsgs := extractSystemMessages(input)
-		if len(systemMsgs) == 0 {
-			return
-		}
-		info, err := chatModel.CreatePrefixCache(ctx, systemMsgs, p.config.PrefixCacheTTL)
-		if err != nil {
-			logs.CtxWarn(ctx, "[ark:%s] prefix cache creation failed (input may be < 1024 tokens): %v", p.config.ID, err)
-			return
-		}
-		p.mu.Lock()
-		p.cacheResponseIDs[modelName] = info.ResponseID
-		p.mu.Unlock()
-		logs.CtxInfo(ctx, "[ark:%s] prefix cache created for model %s, response_id=%s, cached_tokens=%d",
-			p.config.ID, modelName, info.ResponseID, info.Usage.PromptTokenDetails.CachedTokens)
-	})
+	// Per-model lock: only blocks goroutines targeting the same model.
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
 
-	p.mu.RLock()
-	id := p.cacheResponseIDs[modelName]
-	p.mu.RUnlock()
-	return id
+	// Re-check after acquiring the per-model lock (another goroutine may have refreshed).
+	if entry.responseID != "" && time.Now().Before(entry.expiresAt) {
+		return entry.responseID
+	}
+
+	systemMsgs := extractSystemMessages(input)
+	if len(systemMsgs) == 0 {
+		return entry.responseID
+	}
+
+	info, err := chatModel.CreatePrefixCache(ctx, systemMsgs, p.config.PrefixCacheTTL)
+	if err != nil {
+		logs.CtxWarn(ctx, "[ark:%s] prefix cache creation failed (input may be < 1024 tokens): %v", p.config.ID, err)
+		return entry.responseID // stale ID (possibly "") — next request will retry
+	}
+
+	// Refresh 60 s before actual server expiry to avoid stale-ID windows.
+	entry.responseID = info.ResponseID
+	entry.expiresAt = time.Now().Add(time.Duration(p.config.PrefixCacheTTL)*time.Second - 60*time.Second)
+
+	logs.CtxInfo(ctx, "[ark:%s] prefix cache created for model %s, response_id=%s, cached_tokens=%d",
+		p.config.ID, modelName, info.ResponseID, info.Usage.PromptTokenDetails.CachedTokens)
+
+	return entry.responseID
 }
 
 func extractSystemMessages(msgs []*schema.Message) []*schema.Message {
