@@ -284,17 +284,17 @@ func (r *Registry) BuildPrompt(skills []*Skill) string {
 // BuildSummaryPrompt returns a lightweight summary listing all loaded skills
 // with only their name and description (no full content). Useful for inclusion
 // in dynamic or workspace-level prompts where full skill bodies are too heavy.
-func (r *Registry) BuildSummaryPrompt() string {
+func (r *Registry) BuildSummaryPrompt(skills []*Skill) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if len(r.skills) == 0 {
+	if len(skills) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("# Available Skills\n\n")
-	for _, oneSkill := range r.skills {
+	for _, oneSkill := range skills {
 		fmt.Fprintf(&b, "- **%s**", oneSkill.Name)
 		if oneSkill.Description != "" {
 			fmt.Fprintf(&b, ": %s", oneSkill.Description)

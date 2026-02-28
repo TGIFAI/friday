@@ -111,6 +111,16 @@ func (ag *Agent) buildDynamicPrompt(msg *channel.Message) string {
 		fmt.Fprintf(&b, "- user id: %s\n", msg.UserID)
 	}
 
+	// Agent level skills.
+	if sks := ag.skills.GetAgentSkills(); len(sks) > 0 {
+		if text := ag.skills.BuildSummaryPrompt(sks); text != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(text)
+		}
+	}
+
 	// Long-term memory (memory/MEMORY.md).
 	content, err := os.ReadFile(filepath.Join(ag.workspace, consts.WorkspaceMemoryFile))
 	if err != nil {
