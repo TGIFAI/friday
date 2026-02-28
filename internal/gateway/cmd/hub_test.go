@@ -1,4 +1,4 @@
-package cmd_hub
+package cmd
 
 import (
 	"testing"

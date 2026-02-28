@@ -1,4 +1,4 @@
-package cmd_hub
+package cmd
 
 import (
 	"context"
@@ -21,7 +21,7 @@ type AgentInfo interface {
 }
 
 // HandlerDeps is the dependency interface for command handlers, implemented
-// by the gateway. This breaks the circular dependency between cmd_hub and
+// by the gateway. This breaks the circular dependency between cmd and
 // the gateway package.
 type HandlerDeps interface {
 	GetAgentByChannel(channelID string) (AgentInfo, error)
@@ -125,9 +125,9 @@ func (h *Hub) SyncToChannels(ctx context.Context) {
 			continue
 		}
 		if err := reg.SetCommands(ctx, botCmds); err != nil {
-			logs.CtxWarn(ctx, "[cmd_hub] sync commands to channel %s: %v", ch.ID(), err)
+			logs.CtxWarn(ctx, "[cmd] sync commands to channel %s: %v", ch.ID(), err)
 		} else {
-			logs.CtxInfo(ctx, "[cmd_hub] synced %d commands to channel %s", len(botCmds), ch.ID())
+			logs.CtxInfo(ctx, "[cmd] synced %d commands to channel %s", len(botCmds), ch.ID())
 		}
 	}
 }
@@ -141,7 +141,7 @@ func (h *Hub) ResetChannelCommands(ctx context.Context) {
 			continue
 		}
 		if err := reg.DeleteCommands(ctx); err != nil {
-			logs.CtxWarn(ctx, "[cmd_hub] reset commands on channel %s: %v", ch.ID(), err)
+			logs.CtxWarn(ctx, "[cmd] reset commands on channel %s: %v", ch.ID(), err)
 		}
 	}
 }

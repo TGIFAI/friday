@@ -20,28 +20,28 @@ import (
 	"github.com/tgifai/friday/internal/agent"
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/channel"
-	"github.com/tgifai/friday/internal/gateway/cmd_hub"
 	httpChannel "github.com/tgifai/friday/internal/channel/http"
 	"github.com/tgifai/friday/internal/channel/lark"
 	"github.com/tgifai/friday/internal/channel/telegram"
 	"github.com/tgifai/friday/internal/config"
 	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/cronjob"
+	"github.com/tgifai/friday/internal/gateway/cmd"
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/pkg/prometheus"
 	pkgutils "github.com/tgifai/friday/internal/pkg/utils"
 	"github.com/tgifai/friday/internal/provider"
 	"github.com/tgifai/friday/internal/provider/anthropic"
+	"github.com/tgifai/friday/internal/provider/cli"
 	"github.com/tgifai/friday/internal/provider/gemini"
 	"github.com/tgifai/friday/internal/provider/ollama"
 	"github.com/tgifai/friday/internal/provider/openai"
-	"github.com/tgifai/friday/internal/provider/cli"
 	"github.com/tgifai/friday/internal/provider/qwen"
 )
 
 type Gateway struct {
 	agents     sync.Map
-	commands   *cmd_hub.Hub
+	cmds       *cmd.Hub
 	security   *SecurityGuard
 	msgQueue   *MessageQueue
 	httpServer *hzServer.Hertz
@@ -86,12 +86,9 @@ func NewGateway(cfg config.GatewayConfig) *Gateway {
 	}
 	hzSvr := hzServer.Default(hzOpts...)
 
-	commands := cmd_hub.NewHub()
-	cmd_hub.RegisterBuiltins(commands)
-
 	gw := &Gateway{
 		httpServer: hzSvr,
-		commands:   commands,
+		cmds:       cmd.NewHub(),
 		security:   &SecurityGuard{},
 		msgQueue: newMessageQueue(QueueOptions{
 			LaneBuffer:    10,
@@ -99,6 +96,7 @@ func NewGateway(cfg config.GatewayConfig) *Gateway {
 		}),
 	}
 
+	cmd.RegisterBuiltins(gw.cmds)
 	return gw
 }
 
@@ -126,7 +124,7 @@ func (gw *Gateway) Start(ctx context.Context) error {
 		return fmt.Errorf("init channels: %w", err)
 	}
 
-	gw.commands.SyncToChannels(gw.runCtx)
+	gw.cmds.SyncToChannels(gw.runCtx)
 
 	go gw.httpServer.Spin()
 
@@ -415,8 +413,8 @@ func (gw *Gateway) processMessage(ctx context.Context, msg *channel.Message) err
 		}
 	}
 
-	// 2. Command interception — bypass agent for built-in commands.
-	if cmd, _, matched := gw.commands.Match(msg.Content); matched {
+	// 2. Command interception — bypass agent for built-in cmds.
+	if cmd, _, matched := gw.cmds.Match(msg.Content); matched {
 		reply, cmdErr := cmd.Handler(ctx, gw, msg)
 		if cmdErr != nil {
 			return fmt.Errorf("command %s failed: %w", cmd.Name, cmdErr)
@@ -495,13 +493,13 @@ func (gw *Gateway) processCronMessage(ctx context.Context, msg *channel.Message)
 	return nil
 }
 
-// Commands implements cmd_hub.HandlerDeps.
-func (gw *Gateway) Commands() *cmd_hub.Hub {
-	return gw.commands
+// Commands implements cmd.HandlerDeps.
+func (gw *Gateway) Commands() *cmd.Hub {
+	return gw.cmds
 }
 
-// GetAgentByChannel implements cmd_hub.HandlerDeps.
-func (gw *Gateway) GetAgentByChannel(channelID string) (cmd_hub.AgentInfo, error) {
+// GetAgentByChannel implements cmd.HandlerDeps.
+func (gw *Gateway) GetAgentByChannel(channelID string) (cmd.AgentInfo, error) {
 	return gw.getAgentByChannel(channelID)
 }
 
@@ -533,4 +531,3 @@ func (gw *Gateway) getAgentByChannel(channelID string) (*agent.Agent, error) {
 	}
 	return val.(*agent.Agent), nil
 }
-
