@@ -142,6 +142,16 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 			}
 		}
 
+		// Close agents (releases MCP connections, etc.).
+		gw.agents.Range(func(key, value any) bool {
+			if ag, ok := value.(*agent.Agent); ok {
+				if err := ag.Close(); err != nil {
+					logs.CtxWarn(ctx, "[gateway] close agent %s error: %v", ag.ID(), err)
+				}
+			}
+			return true
+		})
+
 		if err := gw.httpServer.Shutdown(ctx); err != nil {
 			logs.CtxWarn(ctx, "[gateway] shutdown http server error: %v", err)
 		}
