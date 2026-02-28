@@ -15,24 +15,28 @@ import (
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/pkg/logs"
+	"github.com/tgifai/friday/internal/provider"
 )
 
 func (ag *Agent) buildMessages(sess *session.Session, msg *channel.Message) []*schema.Message {
-
 	msgs := make([]*schema.Message, 0, 32)
-	systemPrompt := ag.buildRuntimeInformation(msg)
 
-	// 1. build system prompt
-	if prompt, _ := ag.buildSystemPrompt(); len(prompt) > 0 {
-		systemPrompt += "\n\n" + prompt
+	// System ①: built-in definitions (binary-stable, highest cache value)
+	if text := ag.buildBuiltinPrompt(); text != "" {
+		msgs = append(msgs, &schema.Message{Role: schema.System, Content: text, Extra: map[string]any{provider.L0Cache: true}})
 	}
 
-	msgs = append(msgs, &schema.Message{
-		Role:    "system",
-		Content: systemPrompt,
-	})
+	// System ②: workspace persona (user-editable, rarely changes)
+	if text := ag.buildWorkspacePrompt(); text != "" {
+		msgs = append(msgs, &schema.Message{Role: schema.System, Content: text, Extra: map[string]any{provider.L1Cache: true}})
+	}
 
-	// 2. append history messages
+	// System ③: dynamic context (changes per-day or per-request)
+	if text := ag.buildDynamicPrompt(msg); text != "" {
+		msgs = append(msgs, &schema.Message{Role: schema.System, Content: text, Extra: map[string]any{provider.L2Cache: true}})
+	}
+
+	// Session history
 	if sess != nil {
 		msgs = append(msgs, sess.History()...)
 	}
@@ -40,33 +44,37 @@ func (ag *Agent) buildMessages(sess *session.Session, msg *channel.Message) []*s
 	return msgs
 }
 
-func (ag *Agent) buildRuntimeInformation(msg *channel.Message) string {
+// buildBuiltinPrompt returns the binary-stable system prompt containing
+// built-in tool definitions and built-in skills. This content only changes
+// when the binary is rebuilt, making it ideal for prefix caching.
+func (ag *Agent) buildBuiltinPrompt() string {
 	var b strings.Builder
-	b.WriteString("# Runtime Information\n")
+	b.Grow(1 << 11)
 
-	// ---- static section (per-agent, prompt-caching friendly) ----
-	fmt.Fprintf(&b, "- agent: %s (id: %s)\n", ag.name, ag.id)
-	fmt.Fprintf(&b, "- workspace: %s\n", ag.workspace)
-	fmt.Fprintf(&b, "- version: %s\n", friday.VERSION)
-	fmt.Fprintf(&b, "- platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Fprintf(&b, "- shell: %s\n", defaultShell())
+	// Built-in tool definitions from embedded const.
+	if text := strings.TrimSpace(consts.WorkspaceToolsTemplate); text != "" {
+		b.WriteString(text)
+	}
 
-	// ---- dynamic section (per-request) ----
-	fmt.Fprintf(&b, "- current time: %s\n", time.Now().Format(time.RFC3339))
-	if msg != nil {
-		fmt.Fprintf(&b, "- channel: %s (id: %s)\n", msg.ChannelType, msg.ChannelID)
-		fmt.Fprintf(&b, "- chat id: %s\n", msg.ChatID)
-		fmt.Fprintf(&b, "- user id: %s\n", msg.UserID)
+	// Built-in skills.
+	if builtInSkills, _ := ag.skills.GetBuiltInSkills(); len(builtInSkills) > 0 {
+		if text := ag.skills.BuildPrompt(builtInSkills); text != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(text)
+		}
 	}
 
 	return b.String()
 }
 
-func (ag *Agent) buildSystemPrompt() (string, error) {
-	var prompt strings.Builder
-	prompt.Grow(1 << 11)
+// buildWorkspacePrompt returns the workspace persona prompt assembled from
+// user-editable markdown files. This content changes only when the user
+// edits configuration files, so it stays stable across normal conversations.
+func (ag *Agent) buildWorkspacePrompt() string {
+	var b strings.Builder
 
-	// 1. load bootstrap prompt files (without memory)
 	for _, name := range consts.WorkspaceMarkdownFiles {
 		content, err := os.ReadFile(filepath.Join(ag.workspace, name))
 		if err != nil {
@@ -74,43 +82,59 @@ func (ag *Agent) buildSystemPrompt() (string, error) {
 			continue
 		}
 		if text := strings.TrimSpace(string(content)); text != "" {
-			if prompt.Len() > 0 {
-				prompt.WriteString("\n\n")
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
 			}
-			prompt.WriteString(text)
+			b.WriteString(text)
 		}
 	}
 
-	// 2. load memory "memory/MEMORY.md"
+	return b.String()
+}
+
+// buildDynamicPrompt returns the per-request dynamic context including
+// runtime information, long-term memory, and daily memory. This is placed
+// last among system messages so that the more stable prefixes remain cacheable.
+func (ag *Agent) buildDynamicPrompt(msg *channel.Message) string {
+	var b strings.Builder
+
+	// Runtime information.
+	b.WriteString("# Runtime Information\n")
+	fmt.Fprintf(&b, "- agent: %s (id: %s)\n", ag.name, ag.id)
+	fmt.Fprintf(&b, "- workspace: %s\n", ag.workspace)
+	fmt.Fprintf(&b, "- version: %s\n", friday.VERSION)
+	fmt.Fprintf(&b, "- platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(&b, "- shell: %s\n", defaultShell())
+	if msg != nil {
+		fmt.Fprintf(&b, "- channel: %s (id: %s)\n", msg.ChannelType, msg.ChannelID)
+		fmt.Fprintf(&b, "- chat id: %s\n", msg.ChatID)
+		fmt.Fprintf(&b, "- user id: %s\n", msg.UserID)
+	}
+
+	// Agent level skills.
+	if sks := ag.skills.GetAgentSkills(); len(sks) > 0 {
+		if text := ag.skills.BuildSummaryPrompt(sks); text != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(text)
+		}
+	}
+
+	// Long-term memory (memory/MEMORY.md).
 	content, err := os.ReadFile(filepath.Join(ag.workspace, consts.WorkspaceMemoryFile))
 	if err != nil {
 		logs.Warn("[agent:%s] failed to read memory file: %v", ag.id, err)
 	}
-
-	if len(content) > 0 {
-		if text := strings.TrimSpace(string(content)); text != "" {
-			if prompt.Len() > 0 {
-				prompt.WriteString("\n\n")
-			}
-			prompt.WriteString(text)
-		}
+	if text := strings.TrimSpace(string(content)); text != "" {
+		b.WriteString("\n\n")
+		b.WriteString(text)
 	}
 
-	// 2b. load daily memory (yesterday + today)
-	ag.loadDailyMemory(&prompt, time.Now())
+	// Daily memory (yesterday + today).
+	ag.loadDailyMemory(&b, time.Now())
 
-	// 3. load built-in skills
-	if builtInSkills, _ := ag.skills.GetBuiltInSkills(); len(builtInSkills) > 0 {
-		if text := ag.skills.BuildPrompt(builtInSkills); text != "" {
-			if prompt.Len() > 0 {
-				prompt.WriteString("\n\n")
-			}
-			prompt.WriteString(text)
-		}
-	}
-
-	prompt.WriteString("\n\n---\n\n")
-	return prompt.String(), nil
+	return b.String()
 }
 
 // loadDailyMemory appends yesterday's and today's daily memory files to the

@@ -12,7 +12,10 @@ This file documents the tools currently registered by the Agent and how to call 
 6. Use `web_search` + `web_fetch` for web research; use `render_js` only when direct fetch fails on JS-heavy pages.
 7. Use `http_request` for calling external APIs (REST/JSON); use `web_fetch` for reading web pages.
 8. Use `agent` to delegate complex coding tasks to CLI agents (Claude Code, Codex).
-9. Paths can be relative to workspace or absolute. Out-of-scope paths fail with `path not allowed`.
+9. Use `get_time` to get current date/time; never guess or hallucinate dates and weekdays.
+10. Use `browser` for browser automation; always `open` first, then interact, then `close`.
+11. Use `mcp` to connect to external MCP servers and call their tools.
+12. Paths can be relative to workspace or absolute. Out-of-scope paths fail with `path not allowed`.
 
 ## Tool Index
 
@@ -27,6 +30,7 @@ This file documents the tools currently registered by the Agent and how to call 
 | `exec` | Run short commands synchronously |
 | `process` | Manage background processes (`start/status/log/kill/list`) |
 | `message` | Send message to a channel/chat |
+| `get_time` | Get current date, time, weekday, and timezone info |
 | `knowledge_search` | Search local knowledge base (requires `qmd`) |
 | `knowledge_get` | Retrieve full document from knowledge base (requires `qmd`) |
 | `cronx` | Manage scheduled cron jobs (`create/list/delete/update`) |
@@ -34,6 +38,8 @@ This file documents the tools currently registered by the Agent and how to call 
 | `web_search` | Search the web via Brave Search API (requires `BRAVE_API_KEY`) |
 | `http_request` | Make HTTP requests to external APIs |
 | `agent` | Delegate coding tasks to CLI agents (Claude Code, Codex) |
+| `browser` | Browser automation with stealth anti-detection |
+| `mcp` | Connect to external MCP servers and call their tools |
 
 ---
 
@@ -317,7 +323,37 @@ Example:
 
 ---
 
-## 10) `cronx`
+## 10) `get_time`
+
+Purpose: get the current date and time. Use this tool to avoid hallucinating dates, times, or weekdays.
+
+Parameters:
+- `timezone` (string, optional) - IANA timezone name (e.g. `Asia/Shanghai`, `America/New_York`, `Europe/London`). Defaults to the system local timezone if omitted.
+
+Success response:
+- `datetime` (string) - RFC3339 format (e.g. `2025-06-15T14:30:00+08:00`)
+- `date` (string) - `YYYY-MM-DD` format
+- `time` (string) - `HH:MM:SS` format
+- `weekday` (string) - e.g. `Sunday`, `Monday`
+- `unix` (number) - Unix timestamp in seconds
+- `timezone` (string) - timezone abbreviation (e.g. `CST`, `EST`)
+- `timezone_offset` (string) - UTC offset (e.g. `+08:00`, `-05:00`)
+
+Common failures:
+- `invalid timezone "...": ...`
+
+Examples:
+```json
+{}
+```
+
+```json
+{"timezone":"America/New_York"}
+```
+
+---
+
+## 11) `cronx`
 
 Purpose: manage scheduled cron jobs — create periodic or one-shot tasks, list existing jobs, delete or update them.
 
@@ -394,7 +430,7 @@ Examples:
 
 ---
 
-## 11) `knowledge_search`
+## 12) `knowledge_search`
 
 Purpose: search the local knowledge base (markdown docs, notes, meeting transcripts) using hybrid BM25 + vector semantic search. Returns relevant snippets instead of full documents to save tokens.
 
@@ -425,7 +461,7 @@ Example:
 
 ---
 
-## 12) `knowledge_get`
+## 13) `knowledge_get`
 
 Purpose: retrieve a specific document from the local knowledge base by file path or document ID. Use `knowledge_search` first to find relevant documents, then use this tool only when you need the full content.
 
@@ -455,7 +491,7 @@ Example:
 
 ---
 
-## 13) `web_fetch`
+## 14) `web_fetch`
 
 Purpose: fetch a URL and extract its main content as clean markdown. Handles HTML pages (via readability extraction), JSON endpoints, and optionally JS-heavy pages via Cloudflare Browser Rendering.
 
@@ -505,7 +541,7 @@ Examples:
 
 ---
 
-## 14) `web_search`
+## 15) `web_search`
 
 Purpose: search the web using Brave Search API. Returns titles, URLs, and snippets for the top results.
 
@@ -542,7 +578,7 @@ Examples:
 
 ---
 
-## 15) `http_request`
+## 16) `http_request`
 
 Purpose: make an HTTP request to an external API. Use this for REST/JSON API calls; use `web_fetch` for reading web pages.
 
@@ -591,7 +627,7 @@ Examples:
 
 ---
 
-## 16) `agent`
+## 17) `agent`
 
 Purpose: delegate complex coding tasks to CLI agents (Claude Code or Codex). Supports creating sessions, sending follow-up messages, checking status, and managing session lifecycle.
 
@@ -695,6 +731,313 @@ Examples:
 
 ---
 
+## 18) `browser`
+
+Purpose: browser automation with stealth anti-detection. Supports navigation, element interaction, screenshots, content extraction, and JavaScript evaluation. Powered by go-rod with stealth mode enabled by default.
+
+Common parameter:
+- `operation` (required): `open|close|navigate|click|type|screenshot|extract|evaluate|wait|scroll|list_sessions`
+
+### `operation=open`
+Open a new browser session.
+
+Parameters:
+- `headless` (bool, optional, default `true`) - run browser in headless mode
+
+Response:
+- `session_id` (string) - use this ID for all subsequent operations
+- `headless` (bool)
+- `stealth` (bool) - always `true`
+
+### `operation=close`
+Close a browser session and release resources.
+
+Parameters:
+- `session_id` (string, required)
+
+Response:
+- `success` (bool)
+
+### `operation=navigate`
+Navigate to a URL.
+
+Parameters:
+- `session_id` (string, required)
+- `url` (string, required) - URL to navigate to
+- `wait_load` (bool, optional, default `true`) - wait for page load after navigation
+
+Response:
+- `url` (string) - final URL
+- `title` (string) - page title
+
+### `operation=click`
+Click an element on the page.
+
+Parameters:
+- `session_id` (string, required)
+- `selector` (string, required) - CSS or XPath selector
+- `selector_type` (string, optional) - `"css"` (default) or `"xpath"`
+
+Response:
+- `success` (bool)
+- `selector` (string)
+
+### `operation=type`
+Type text into an input element.
+
+Parameters:
+- `session_id` (string, required)
+- `selector` (string, required) - CSS or XPath selector for the input element
+- `text` (string, required) - text to input
+- `selector_type` (string, optional) - `"css"` (default) or `"xpath"`
+- `clear` (bool, optional) - clear existing text before typing
+
+Response:
+- `success` (bool)
+
+### `operation=screenshot`
+Take a screenshot of the page or a specific element.
+
+Parameters:
+- `session_id` (string, required)
+- `selector` (string, optional) - CSS/XPath selector for element screenshot; omit for full page
+- `selector_type` (string, optional) - `"css"` (default) or `"xpath"`
+- `format` (string, optional) - `"png"` (default) or `"jpeg"`
+
+Response:
+- `data` (string) - base64-encoded screenshot image
+- `format` (string) - `"png"` or `"jpeg"`
+
+### `operation=extract`
+Extract text, HTML, or attributes from elements.
+
+Parameters:
+- `session_id` (string, required)
+- `selector` (string, required) - CSS or XPath selector
+- `selector_type` (string, optional) - `"css"` (default) or `"xpath"`
+- `attribute` (string, optional) - HTML attribute to extract (e.g. `href`, `src`)
+- `all` (bool, optional) - extract all matching elements instead of first
+
+Response (single element):
+- `text` (string) - text content
+- `html` (string) - outer HTML
+- `attribute` (string) - attribute value (if `attribute` was specified)
+
+Response (all elements, `all=true`):
+- `elements` (array of `{text, html, attribute}`)
+- `count` (number)
+
+### `operation=evaluate`
+Execute JavaScript code on the page.
+
+Parameters:
+- `session_id` (string, required)
+- `script` (string, required) - JavaScript code to execute
+
+Response:
+- `result` (any) - return value from the script
+
+Notes:
+- If the script is not wrapped in a function, it is auto-wrapped as `() => { <script> }`.
+
+### `operation=wait`
+Wait for an element to appear and become visible.
+
+Parameters:
+- `session_id` (string, required)
+- `selector` (string, required) - CSS or XPath selector
+- `selector_type` (string, optional) - `"css"` (default) or `"xpath"`
+- `timeout` (number, optional) - timeout in seconds, default 30
+
+Response:
+- `success` (bool)
+
+Common failures:
+- `element not found: selector '...' timed out after 30s`
+- `element '...' not visible after 30s`
+
+### `operation=scroll`
+Scroll the page or scroll an element into view.
+
+Parameters:
+- `session_id` (string, required)
+- `selector` (string, optional) - if provided, scrolls the element into view
+- `selector_type` (string, optional) - `"css"` (default) or `"xpath"`
+- `x` (number, optional) - horizontal scroll offset in pixels (when no selector)
+- `y` (number, optional) - vertical scroll offset in pixels (when no selector)
+
+Response:
+- `success` (bool)
+
+### `operation=list_sessions`
+List all active browser sessions.
+
+Parameters: none
+
+Response:
+- `sessions` (array)
+- `count` (number)
+
+Common failures (general):
+- `session_id is required`
+- `session not found: ...`
+- `unknown operation "..."`
+
+Examples:
+```json
+{"operation":"open","headless":true}
+```
+
+```json
+{"operation":"navigate","session_id":"bs-1","url":"https://example.com"}
+```
+
+```json
+{"operation":"click","session_id":"bs-1","selector":"button.submit"}
+```
+
+```json
+{"operation":"type","session_id":"bs-1","selector":"#search-input","text":"hello world","clear":true}
+```
+
+```json
+{"operation":"screenshot","session_id":"bs-1","format":"png"}
+```
+
+```json
+{"operation":"extract","session_id":"bs-1","selector":"h1","all":false}
+```
+
+```json
+{"operation":"extract","session_id":"bs-1","selector":"a.link","attribute":"href","all":true}
+```
+
+```json
+{"operation":"evaluate","session_id":"bs-1","script":"return document.title"}
+```
+
+```json
+{"operation":"wait","session_id":"bs-1","selector":"#result","timeout":10}
+```
+
+```json
+{"operation":"scroll","session_id":"bs-1","y":500}
+```
+
+```json
+{"operation":"scroll","session_id":"bs-1","selector":"#footer"}
+```
+
+```json
+{"operation":"list_sessions"}
+```
+
+```json
+{"operation":"close","session_id":"bs-1"}
+```
+
+---
+
+## 19) `mcp`
+
+Purpose: connect to external MCP (Model Context Protocol) servers and call their tools. Supports stdio and HTTP transports. Use `list_servers`/`list_tools` to discover available tools, then `call_tool` to invoke them.
+
+Common parameter:
+- `action` (required): `connect|disconnect|list_servers|list_tools|call_tool`
+
+### `action=connect`
+Add and connect to an MCP server.
+
+Parameters:
+- `name` (string, required) - server name
+- `transport` (string, required) - `"stdio"` or `"http"`
+- `command` (string, required for stdio) - command to run
+- `args` (array, optional for stdio) - command arguments
+- `env` (object, optional for stdio) - environment variables
+- `url` (string, required for http) - server URL
+
+Response:
+- `status` (`"connected"`)
+- `server` (string)
+
+### `action=disconnect`
+Disconnect from an MCP server.
+
+Parameters:
+- `server` (string, required) - server name
+
+Response:
+- `status` (`"disconnected"`)
+- `server` (string)
+
+### `action=list_servers`
+List all connected MCP servers.
+
+Parameters: none
+
+Response:
+- `servers` (array of `{name, transport, status, error?}`)
+
+### `action=list_tools`
+List available tools from MCP servers.
+
+Parameters:
+- `server` (string, optional) - filter by server name; if omitted, lists tools from all servers
+
+Response:
+- `tools` (array of `{server, name, description?}`)
+
+### `action=call_tool`
+Invoke a tool on an MCP server.
+
+Parameters:
+- `server` (string, required) - server name
+- `tool` (string, required) - tool name
+- `arguments` (object, optional) - tool arguments as JSON
+
+Response:
+- `server` (string)
+- `tool` (string)
+- `content` (array of `{type, text}` or `{type, mime_type, data}`)
+- `is_error` (bool, present if the tool returned an error)
+
+Common failures:
+- `action is required`
+- `name is required for connect action`
+- `transport is required for connect action`
+- `command is required for stdio transport`
+- `url is required for http transport`
+- `server "..." not found`
+- `tool is required for call_tool action`
+- `call tool .../...: ...`
+
+Examples:
+```json
+{"action":"connect","name":"my-server","transport":"stdio","command":"npx","args":["@my/mcp-server"]}
+```
+
+```json
+{"action":"connect","name":"remote","transport":"http","url":"http://localhost:8080/mcp"}
+```
+
+```json
+{"action":"list_servers"}
+```
+
+```json
+{"action":"list_tools","server":"my-server"}
+```
+
+```json
+{"action":"call_tool","server":"my-server","tool":"search","arguments":{"query":"hello"}}
+```
+
+```json
+{"action":"disconnect","server":"my-server"}
+```
+
+---
+
 ## Suggested LLM Playbooks
 
 ### Code change task
@@ -735,3 +1078,21 @@ Examples:
 1. `http_request` with appropriate method and headers
 2. Parse the JSON response body
 3. Use results in your workflow
+
+### Browser automation task
+1. `browser open` to start a session (headless by default)
+2. `browser navigate` to the target URL
+3. `browser wait` for key elements to appear
+4. `browser click`/`browser type` to interact
+5. `browser extract` or `browser screenshot` to capture results
+6. `browser close` to release resources
+
+### MCP server integration
+1. `mcp connect` to add an external MCP server (stdio or http)
+2. `mcp list_tools` to discover available tools
+3. `mcp call_tool` to invoke tools with arguments
+4. `mcp disconnect` when done
+
+### Date/time-aware task
+1. `get_time` to get the current date, time, and weekday
+2. Use the result to avoid hallucinating temporal information

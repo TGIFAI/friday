@@ -116,13 +116,13 @@ channels:
 # Provider definitions. Key = provider ID.
 providers:
   openai-main:
-    # Supported values: openai, anthropic, gemini, ollama, qwen.
+    # Supported values: openai, anthropic, gemini, ollama, qwen, ark.
     type: "openai"
     config:
       api_key: "${OPENAI_API_KEY}"
       base_url: "https://api.openai.com/v1"
       default_model: "gpt-4o-mini"
-      timeout: 60
+      timeout: 180
       max_retries: 3
 
   anthropic-main:
@@ -131,5 +131,22 @@ providers:
       api_key: "${ANTHROPIC_API_KEY}"
       base_url: "https://api.anthropic.com"
       default_model: "claude-3-5-sonnet-20241022"
-      timeout: 60
+      timeout: 180
       max_retries: 3
+
+  ark-main:
+    type: "ark"
+    config:
+      # Authentication: either api_key alone, or access_key + secret_key.
+      api_key: "${ARK_API_KEY}"
+      # access_key: "${ARK_ACCESS_KEY}"
+      # secret_key: "${ARK_SECRET_KEY}"
+      # base_url: "https://ark.cn-beijing.volces.com/api/v3"
+      default_model: "${ARK_ENDPOINT_ID}"
+      timeout: 180
+      max_retries: 3
+      # temperature: 0.7
+      # Enable server-side prefix caching for system messages (default: true).
+      # prefix_cache_enabled: true
+      # Prefix cache TTL in seconds (default: 3600).
+      # prefix_cache_ttl: 3600

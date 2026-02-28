@@ -13,7 +13,12 @@ const (
 	Gemini    Type = "gemini"
 	Ollama    Type = "ollama"
 	Qwen      Type = "qwen"
+	Ark       Type = "ark"
 	CLI       Type = "cli"
+
+	L0Cache = "l0cache"
+	L1Cache = "l1cache"
+	L2Cache = "l2cache"
 )
 
 var SupportedProviders = []Type{
@@ -22,6 +27,7 @@ var SupportedProviders = []Type{
 	Gemini,
 	Ollama,
 	Qwen,
+	Ark,
 	CLI,
 }
 

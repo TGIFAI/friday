@@ -19,8 +19,15 @@ var _ provider.Provider = (*Provider)(nil)
 type Provider struct {
 	config   Config
 	client   *genai.Client
-	modelMap map[string]*gmodel.ChatModel
+	modelMap map[string]model.ToolCallingChatModel
+	tools    []*schema.ToolInfo
 	mu       sync.RWMutex
+}
+
+func (p *Provider) RegisterTools(tools []*schema.ToolInfo) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tools = tools
 }
 
 func NewProvider(ctx context.Context, id string, cfgMap map[string]any) (*Provider, error) {
@@ -44,7 +51,7 @@ func NewProvider(ctx context.Context, id string, cfgMap map[string]any) (*Provid
 	return &Provider{
 		config:   *cfg,
 		client:   client,
-		modelMap: make(map[string]*gmodel.ChatModel, 4),
+		modelMap: make(map[string]model.ToolCallingChatModel, 4),
 	}, nil
 }
 
@@ -137,7 +144,7 @@ func (p *Provider) Stream(ctx context.Context, modelName string, input []*schema
 	return streamReader, nil
 }
 
-func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (*gmodel.ChatModel, error) {
+func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (model.ToolCallingChatModel, error) {
 	p.mu.RLock()
 	if m, exists := p.modelMap[modelName]; exists {
 		p.mu.RUnlock()
@@ -159,6 +166,12 @@ func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (*gmo
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chat model for %s: %w", modelName, err)
 	}
-	p.modelMap[modelName] = chatModel
-	return chatModel, nil
+
+	cm, err := chatModel.WithTools(p.tools)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind tools with model for %s: %w", modelName, err)
+	}
+
+	p.modelMap[modelName] = cm
+	return cm, nil
 }

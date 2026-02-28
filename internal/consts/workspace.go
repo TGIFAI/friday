@@ -19,6 +19,9 @@ var (
 	//go:embed tpl/TOOLS.md
 	WorkspaceToolsTemplate string
 
+	//go:embed tpl/CUSTOM_TOOLS.md
+	WorkspaceCustomToolsTemplate string
+
 	//go:embed tpl/IDENTITY.md
 	WorkspaceIdentityTemplate string
 
@@ -42,6 +45,12 @@ var WorkspaceMarkdownFiles = []string{
 	"SECURITY.md",
 }
 
+// WorkspaceManagedFiles lists files that are always overwritten on startup
+// to stay in sync with the binary. These must not contain user-editable content.
+var WorkspaceManagedFiles = map[string]bool{
+	"SECURITY.md": true,
+}
+
 const WorkspaceMemoryFile = "memory/MEMORY.md"
 
 const WorkspaceMemoryDailyDir = "memory/daily"
@@ -54,7 +63,7 @@ var WorkspaceMarkdownTemplates = map[string]string{
 	"AGENTS.md":        WorkspaceAgentsTemplate,
 	"SOUL.md":          WorkspaceSoulTemplate,
 	"USER.md":          WorkspaceUserTemplate,
-	"TOOLS.md":         WorkspaceToolsTemplate,
+	"TOOLS.md":         WorkspaceCustomToolsTemplate,
 	"IDENTITY.md":      WorkspaceIdentityTemplate,
 	"HEARTBEAT.md":     WorkspaceHeartbeatTemplate,
 	"SECURITY.md":      WorkspaceSecurityTemplate,

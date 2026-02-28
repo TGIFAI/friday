@@ -19,10 +19,23 @@ import (
 var _ provider.Provider = (*Provider)(nil)
 
 type Provider struct {
-	config   Config
-	httpCli  *http.Client
-	modelMap map[string]*claude.ChatModel
-	mu       sync.RWMutex
+	config    Config
+	httpCli   *http.Client
+	modelMap  map[string]model.ToolCallingChatModel
+	tools     []*schema.ToolInfo
+	toolsOnce sync.Once
+	mu        sync.RWMutex
+}
+
+func (p *Provider) RegisterTools(tools []*schema.ToolInfo) {
+	p.toolsOnce.Do(func() {
+		if len(tools) > 0 {
+			// Mark the last tool with a cache breakpoint so that Claude's
+			// prompt caching can reuse the tool definitions across requests.
+			tools[len(tools)-1] = claude.SetToolInfoBreakpoint(tools[len(tools)-1])
+		}
+		p.tools = tools
+	})
 }
 
 func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider, error) {
@@ -34,7 +47,7 @@ func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider
 	return &Provider{
 		config:   *cfg,
 		httpCli:  &http.Client{Timeout: cfg.Timeout},
-		modelMap: make(map[string]*claude.ChatModel, 4),
+		modelMap: make(map[string]model.ToolCallingChatModel, 4),
 	}, nil
 }
 
@@ -131,6 +144,7 @@ func (p *Provider) Generate(ctx context.Context, modelName string, messages []*s
 	}
 
 	sanitizeMessages(messages)
+	setSystemBreakpoints(messages)
 
 	resp, err := chatModel.Generate(ctx, messages, opts...)
 	if err != nil {
@@ -154,6 +168,7 @@ func (p *Provider) Stream(ctx context.Context, modelName string, messages []*sch
 	}
 
 	sanitizeMessages(messages)
+	setSystemBreakpoints(messages)
 
 	streamReader, err := chatModel.Stream(ctx, messages, opts...)
 	if err != nil {
@@ -161,6 +176,17 @@ func (p *Provider) Stream(ctx context.Context, modelName string, messages []*sch
 	}
 
 	return streamReader, nil
+}
+
+// setSystemBreakpoints marks the last system message with a cache breakpoint
+// so that Claude's prompt caching covers all system prompts.
+func setSystemBreakpoints(msgs []*schema.Message) {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == schema.System {
+			msgs[i] = claude.SetMessageBreakpoint(msgs[i])
+			return
+		}
+	}
 }
 
 // sanitizeMessages ensures no message has completely empty content, which would
@@ -184,7 +210,7 @@ func sanitizeMessages(msgs []*schema.Message) {
 	}
 }
 
-func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (*claude.ChatModel, error) {
+func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (model.ToolCallingChatModel, error) {
 	p.mu.RLock()
 	if m, exists := p.modelMap[modelName]; exists {
 		p.mu.RUnlock()
@@ -218,8 +244,13 @@ func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (*cla
 		return nil, fmt.Errorf("failed to create chat model for %s: %w", modelName, err)
 	}
 
-	p.modelMap[modelName] = chatModel
-	return chatModel, nil
+	cm, err := chatModel.WithTools(p.tools)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind tools with model for %s: %w", modelName, err)
+	}
+
+	p.modelMap[modelName] = cm
+	return cm, nil
 }
 
 func (p *Provider) modelsEndpoint() string {

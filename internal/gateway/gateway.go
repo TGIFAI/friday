@@ -33,6 +33,7 @@ import (
 	pkgutils "github.com/tgifai/friday/internal/pkg/utils"
 	"github.com/tgifai/friday/internal/provider"
 	"github.com/tgifai/friday/internal/provider/anthropic"
+	"github.com/tgifai/friday/internal/provider/ark"
 	"github.com/tgifai/friday/internal/provider/cli"
 	"github.com/tgifai/friday/internal/provider/gemini"
 	"github.com/tgifai/friday/internal/provider/ollama"
@@ -202,6 +203,8 @@ func newProvider(ctx context.Context, cfg config.ProviderConfig) (provider.Provi
 		return ollama.NewProvider(ctx, cfg.ID, cfgMap)
 	case provider.Qwen:
 		return qwen.NewProvider(ctx, cfg.ID, cfgMap)
+	case provider.Ark:
+		return ark.NewProvider(ctx, cfg.ID, cfgMap)
 	case provider.CLI:
 		return cli.NewProvider(ctx, cfg.ID, cfgMap)
 	default:

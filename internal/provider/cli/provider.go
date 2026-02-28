@@ -59,6 +59,8 @@ func (p *Provider) ListModels(_ context.Context) ([]provider.ModelInfo, error) {
 	}}, nil
 }
 
+func (p *Provider) RegisterTools(_ []*schema.ToolInfo) {}
+
 func (p *Provider) Generate(ctx context.Context, modelName string, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
 	if modelName == "" {
 		modelName = p.config.DefaultModel
