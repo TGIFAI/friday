@@ -23,6 +23,7 @@ type Provider struct {
 	// cacheResponseIDs stores prefix cache response IDs per model name.
 	// Populated lazily on the first Generate/Stream call when PrefixCacheEnabled is true.
 	cacheResponseIDs map[string]string
+	prefixCacheOnce  map[string]*sync.Once
 	mu               sync.RWMutex
 }
 
@@ -43,6 +44,7 @@ func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider
 		modelMap:         make(map[string]model.ToolCallingChatModel, 4),
 		rawModelMap:      make(map[string]*arkmodel.ResponsesAPIChatModel, 4),
 		cacheResponseIDs: make(map[string]string, 4),
+		prefixCacheOnce:  make(map[string]*sync.Once, 4),
 	}, nil
 }
 
@@ -84,7 +86,6 @@ func (p *Provider) Generate(ctx context.Context, modelName string, input []*sche
 		return nil, fmt.Errorf("failed to get chat model for %s: %w", modelName, err)
 	}
 
-	opts = p.appendConfigOpts(opts)
 	opts = p.appendPrefixCacheOpts(ctx, modelName, input, opts)
 
 	resp, err := chatModel.Generate(ctx, input, opts...)
@@ -106,7 +107,6 @@ func (p *Provider) Stream(ctx context.Context, modelName string, input []*schema
 		return nil, fmt.Errorf("failed to get chat model for %s: %w", modelName, err)
 	}
 
-	opts = p.appendConfigOpts(opts)
 	opts = p.appendPrefixCacheOpts(ctx, modelName, input, opts)
 
 	streamReader, err := chatModel.Stream(ctx, input, opts...)
@@ -114,13 +114,6 @@ func (p *Provider) Stream(ctx context.Context, modelName string, input []*schema
 		return nil, fmt.Errorf("failed to create stream: %w", err)
 	}
 	return streamReader, nil
-}
-
-func (p *Provider) appendConfigOpts(opts []model.Option) []model.Option {
-	if p.config.Temperature > 0 {
-		opts = append(opts, model.WithTemperature(p.config.Temperature))
-	}
-	return opts
 }
 
 // appendPrefixCacheOpts auto-creates a prefix cache from system messages on the
@@ -151,6 +144,7 @@ func (p *Provider) appendPrefixCacheOpts(ctx context.Context, modelName string, 
 
 // getOrCreatePrefixCache returns an existing cached response ID or attempts to
 // create a new prefix cache from system messages via the ResponsesAPI.
+// Uses sync.Once per model to guarantee exactly one CreatePrefixCache call.
 func (p *Provider) getOrCreatePrefixCache(ctx context.Context, chatModel *arkmodel.ResponsesAPIChatModel, modelName string, input []*schema.Message) string {
 	// Fast path: cache already exists.
 	p.mu.RLock()
@@ -160,29 +154,41 @@ func (p *Provider) getOrCreatePrefixCache(ctx context.Context, chatModel *arkmod
 	}
 	p.mu.RUnlock()
 
-	systemMsgs := extractSystemMessages(input)
-	if len(systemMsgs) == 0 {
-		return ""
-	}
-
-	// Create prefix cache (best-effort, may fail if < 1024 tokens).
-	info, err := chatModel.CreatePrefixCache(ctx, systemMsgs, p.config.PrefixCacheTTL)
-	if err != nil {
-		logs.CtxWarn(ctx, "[ark:%s] prefix cache creation failed (input may be < 1024 tokens): %v", p.config.ID, err)
-		return ""
-	}
-
+	// Get or create a sync.Once for this model.
 	p.mu.Lock()
-	if existing, ok := p.cacheResponseIDs[modelName]; ok {
+	if id, ok := p.cacheResponseIDs[modelName]; ok {
 		p.mu.Unlock()
-		return existing
+		return id
 	}
-	p.cacheResponseIDs[modelName] = info.ResponseID
+	once, ok := p.prefixCacheOnce[modelName]
+	if !ok {
+		once = &sync.Once{}
+		p.prefixCacheOnce[modelName] = once
+	}
 	p.mu.Unlock()
 
-	logs.CtxInfo(ctx, "[ark:%s] prefix cache created for model %s, response_id=%s, cached_tokens=%d",
-		p.config.ID, modelName, info.ResponseID, info.Usage.PromptTokenDetails.CachedTokens)
-	return info.ResponseID
+	// Exactly one goroutine executes CreatePrefixCache; others block here.
+	once.Do(func() {
+		systemMsgs := extractSystemMessages(input)
+		if len(systemMsgs) == 0 {
+			return
+		}
+		info, err := chatModel.CreatePrefixCache(ctx, systemMsgs, p.config.PrefixCacheTTL)
+		if err != nil {
+			logs.CtxWarn(ctx, "[ark:%s] prefix cache creation failed (input may be < 1024 tokens): %v", p.config.ID, err)
+			return
+		}
+		p.mu.Lock()
+		p.cacheResponseIDs[modelName] = info.ResponseID
+		p.mu.Unlock()
+		logs.CtxInfo(ctx, "[ark:%s] prefix cache created for model %s, response_id=%s, cached_tokens=%d",
+			p.config.ID, modelName, info.ResponseID, info.Usage.PromptTokenDetails.CachedTokens)
+	})
+
+	p.mu.RLock()
+	id := p.cacheResponseIDs[modelName]
+	p.mu.RUnlock()
+	return id
 }
 
 func extractSystemMessages(msgs []*schema.Message) []*schema.Message {

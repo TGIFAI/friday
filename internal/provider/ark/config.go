@@ -8,6 +8,8 @@ import (
 	"github.com/bytedance/gg/gconv"
 )
 
+const defaultPrefixCacheTTL = 60 * 60 * 8 // 8hrs
+
 type Config struct {
 	ID           string
 	APIKey       string
@@ -25,7 +27,7 @@ type Config struct {
 	// the cached response ID on subsequent calls via the ResponsesAPI.
 	PrefixCacheEnabled bool
 	// PrefixCacheTTL is the time-to-live in seconds for the prefix cache.
-	// Default: 3600 (1 hour).
+	// Default: 8hrs.
 	PrefixCacheTTL int
 }
 
@@ -39,14 +41,14 @@ func (c *Config) Validate() error {
 	if c.DefaultModel == "" {
 		return errors.New("default_model (endpoint ID) is required")
 	}
-	if c.Timeout == 0 {
-		c.Timeout = 300 * time.Second
+	if c.Timeout <= 0 {
+		return errors.New("timeout must be positive")
 	}
 	if c.MaxRetries < 0 {
-		c.MaxRetries = 3
+		return errors.New("max_retries must be non-negative")
 	}
 	if c.PrefixCacheTTL <= 0 {
-		c.PrefixCacheTTL = 3600
+		c.PrefixCacheTTL = defaultPrefixCacheTTL
 	}
 	return nil
 }
@@ -98,7 +100,7 @@ func ParseConfig(id string, configMap map[string]any) (*Config, error) {
 	if ttl := gconv.To[int](configMap["prefix_cache_ttl"]); ttl > 0 {
 		config.PrefixCacheTTL = ttl
 	} else {
-		config.PrefixCacheTTL = 3600
+		config.PrefixCacheTTL = defaultPrefixCacheTTL
 	}
 
 	if err := config.Validate(); err != nil {

@@ -49,6 +49,11 @@ func (t *TimeTool) Execute(_ context.Context, args map[string]interface{}) (inte
 	}
 
 	zone, offset := now.Zone()
+	hours := offset / 3600
+	mins := (offset % 3600) / 60
+	if mins < 0 {
+		mins = -mins
+	}
 
 	return map[string]interface{}{
 		"datetime":        now.Format(time.RFC3339),
@@ -57,13 +62,6 @@ func (t *TimeTool) Execute(_ context.Context, args map[string]interface{}) (inte
 		"weekday":         now.Weekday().String(),
 		"unix":            now.Unix(),
 		"timezone":        zone,
-		"timezone_offset": fmt.Sprintf("%+03d:%02d", offset/3600, (abs(offset)%3600)/60),
+		"timezone_offset": fmt.Sprintf("%+03d:%02d", hours, mins),
 	}, nil
-}
-
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
 }
