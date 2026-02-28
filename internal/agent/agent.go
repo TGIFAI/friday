@@ -16,6 +16,7 @@ import (
 	"github.com/tgifai/friday/internal/agent/skill"
 	"github.com/tgifai/friday/internal/agent/tool"
 	"github.com/tgifai/friday/internal/agent/tool/agentx"
+	"github.com/tgifai/friday/internal/agent/tool/browserx"
 	"github.com/tgifai/friday/internal/agent/tool/cronx"
 	"github.com/tgifai/friday/internal/agent/tool/filex"
 	"github.com/tgifai/friday/internal/agent/tool/httpx"
@@ -159,6 +160,9 @@ func (ag *Agent) Init(ctx context.Context) error {
 
 	// agent delegation tools
 	_ = ag.tools.Register(agentx.NewAgentTool(ag.workspace))
+
+	// browser automation tools
+	_ = ag.tools.Register(browserx.NewBrowserTool())
 
 	// MCP server tools
 	ag.mcpMgr = mcpx.NewMCPTool()
