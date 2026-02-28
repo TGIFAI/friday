@@ -40,9 +40,7 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 	notifier := &loopNotifier{agent: ag, chatID: msg.ChatID}
 	notifier.channel, _ = channel.Get(msg.ChannelID)
 
-	opts := []model.Option{
-		model.WithToolChoice(schema.ToolChoiceAllowed),
-	}
+	var opts []model.Option
 	if cfg.Temperature > 0 {
 		opts = append(opts, model.WithTemperature(float32(cfg.Temperature)))
 	}
