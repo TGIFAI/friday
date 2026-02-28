@@ -31,7 +31,8 @@ const (
 )
 
 var (
-	_ channel.Channel = (*Telegram)(nil)
+	_ channel.Channel           = (*Telegram)(nil)
+	_ channel.CommandRegistrar  = (*Telegram)(nil)
 )
 
 type Telegram struct {
@@ -161,6 +162,27 @@ func (c *Telegram) Stop(ctx context.Context) error {
 		c.bot.Close(ctx)
 	}
 	return nil
+}
+
+// SetCommands registers bot commands in Telegram's native bot menu.
+func (c *Telegram) SetCommands(ctx context.Context, commands []channel.BotCommand) error {
+	params := &bot.SetMyCommandsParams{
+		Commands: make([]models.BotCommand, len(commands)),
+	}
+	for i, cmd := range commands {
+		params.Commands[i] = models.BotCommand{
+			Command:     cmd.Command,
+			Description: cmd.Description,
+		}
+	}
+	_, err := c.bot.SetMyCommands(ctx, params)
+	return err
+}
+
+// DeleteCommands removes all bot commands from Telegram's native bot menu.
+func (c *Telegram) DeleteCommands(ctx context.Context) error {
+	_, err := c.bot.DeleteMyCommands(ctx, &bot.DeleteMyCommandsParams{})
+	return err
 }
 
 // newWebhookHandler returns a Hertz handler that receives Telegram webhook
