@@ -281,7 +281,28 @@ func (r *Registry) BuildPrompt(skills []*Skill) string {
 	return strings.Join(parts, "\n")
 }
 
-func (r *Registry) BuildSummaryPrompt() string { return "" }
+// BuildSummaryPrompt returns a lightweight summary listing all loaded skills
+// with only their name and description (no full content). Useful for inclusion
+// in dynamic or workspace-level prompts where full skill bodies are too heavy.
+func (r *Registry) BuildSummaryPrompt() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if len(r.skills) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("# Available Skills\n\n")
+	for _, oneSkill := range r.skills {
+		fmt.Fprintf(&b, "- **%s**", oneSkill.Name)
+		if oneSkill.Description != "" {
+			fmt.Fprintf(&b, ": %s", oneSkill.Description)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
 
 func (r *Registry) Reload(ctx context.Context) error {
 	r.mu.Lock()
@@ -304,6 +325,22 @@ func (r *Registry) ReloadAgentSkills(ctx context.Context) error {
 	r.mu.Unlock()
 
 	return r.LoadAgentSkills()
+}
+
+// GetAgentSkills returns all non-built-in skills (loaded from the workspace
+// skills/ directory). These are user-defined and change when the user edits
+// skill files.
+func (r *Registry) GetAgentSkills() []*Skill {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	skills := make([]*Skill, 0, len(r.skills))
+	for _, oneSkill := range r.skills {
+		if !oneSkill.isBuiltIn {
+			skills = append(skills, oneSkill)
+		}
+	}
+	return skills
 }
 
 func (r *Registry) GetBuiltInSkills() ([]*Skill, error) {

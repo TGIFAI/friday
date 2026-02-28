@@ -24,6 +24,7 @@ import (
 	"github.com/tgifai/friday/internal/agent/tool/msgx"
 	"github.com/tgifai/friday/internal/agent/tool/qmdx"
 	"github.com/tgifai/friday/internal/agent/tool/shellx"
+	"github.com/tgifai/friday/internal/agent/tool/timex"
 	"github.com/tgifai/friday/internal/agent/tool/webx"
 	"github.com/tgifai/friday/internal/channel"
 	"github.com/tgifai/friday/internal/config"
@@ -109,6 +110,9 @@ func (ag *Agent) Workspace() string {
 }
 
 func (ag *Agent) Init(ctx context.Context) error {
+	// Bootstrap workspace prompt files from embedded templates.
+	ag.bootstrapWorkspace()
+
 	// Start session GC if TTL is configured.
 	if ag.sessMgr.TTL() > 0 {
 		ag.sessMgr.StartGCLoop(ctx, 0) // 0 = default 10min interval
@@ -134,6 +138,9 @@ func (ag *Agent) Init(ctx context.Context) error {
 	_ = ag.tools.Register(filex.NewListTool(ag.workspace, allowedPaths))
 	_ = ag.tools.Register(filex.NewDeleteTool(ag.workspace, allowedPaths))
 	_ = ag.tools.Register(filex.NewEditTool(ag.workspace, allowedPaths))
+
+	// time tool
+	_ = ag.tools.Register(timex.NewTimeTool())
 
 	// msg related tools
 	_ = ag.tools.Register(msgx.NewMessageTool())
@@ -172,6 +179,39 @@ func (ag *Agent) Init(ctx context.Context) error {
 	_ = ag.tools.Register(ag.mcpMgr)
 
 	return nil
+}
+
+// bootstrapWorkspace writes embedded prompt templates to the workspace directory.
+// Managed files (e.g. TOOLS.md, SECURITY.md) are always overwritten to stay in
+// sync with the binary. User-editable files are only created when missing.
+func (ag *Agent) bootstrapWorkspace() {
+	for name, content := range consts.WorkspaceMarkdownTemplates {
+		dst := filepath.Join(ag.workspace, name)
+
+		if consts.WorkspaceManagedFiles[name] {
+			// Always overwrite managed files.
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				logs.Warn("[agent:%s] bootstrap: mkdir %s: %v", ag.id, filepath.Dir(dst), err)
+				continue
+			}
+			if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+				logs.Warn("[agent:%s] bootstrap: write %s: %v", ag.id, name, err)
+			}
+			continue
+		}
+
+		// User-editable files: create only if missing.
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			logs.Warn("[agent:%s] bootstrap: mkdir %s: %v", ag.id, filepath.Dir(dst), err)
+			continue
+		}
+		if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+			logs.Warn("[agent:%s] bootstrap: write %s: %v", ag.id, name, err)
+		}
+	}
 }
 
 func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*channel.Response, error) {

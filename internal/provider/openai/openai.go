@@ -8,7 +8,8 @@ import (
 	"sync"
 
 	"github.com/bytedance/sonic"
-	"github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 
 	"github.com/tgifai/friday/internal/provider"
 )
@@ -18,7 +19,8 @@ var _ provider.Provider = (*Provider)(nil)
 type Provider struct {
 	config   Config
 	httpCli  *http.Client
-	modelMap map[string]*openai.ChatModel
+	modelMap map[string]model.ToolCallingChatModel
+	tools    []*schema.ToolInfo
 
 	isAvailable     bool
 	availableModels []provider.ModelInfo
@@ -26,6 +28,12 @@ type Provider struct {
 	closeCh chan struct{}
 
 	mu sync.RWMutex
+}
+
+func (p *Provider) RegisterTools(tools []*schema.ToolInfo) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tools = tools
 }
 
 func NewProvider(ctx context.Context, id string, cfgMap map[string]any) (*Provider, error) {
@@ -36,7 +44,7 @@ func NewProvider(ctx context.Context, id string, cfgMap map[string]any) (*Provid
 
 	p := &Provider{
 		config:          *cfg,
-		modelMap:        make(map[string]*openai.ChatModel, 4),
+		modelMap:        make(map[string]model.ToolCallingChatModel, 4),
 		availableModels: make([]provider.ModelInfo, 0),
 		isAvailable:     false,
 		closeCh:         make(chan struct{}),

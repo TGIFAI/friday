@@ -28,6 +28,10 @@ type Provider interface {
 	// The result is used for health checks and model discovery.
 	ListModels(ctx context.Context) ([]ModelInfo, error)
 
+	// RegisterTools binds the given tool definitions to this provider so that
+	// subsequent Generate / Stream calls automatically include them.
+	RegisterTools([]*schema.ToolInfo)
+
 	// Generate performs a single non-streaming chat completion request.
 	// modelName is the target backend model identifier. If modelName is empty,
 	// implementations may fall back to their configured default model.
