@@ -132,7 +132,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error)
 
 func (p *Provider) Generate(ctx context.Context, modelName string, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	if modelName == "" {
-		modelName = p.config.DefaultModel
+		return nil, fmt.Errorf("model name is required")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, p.config.Timeout)
@@ -157,7 +157,7 @@ func (p *Provider) Generate(ctx context.Context, modelName string, messages []*s
 
 func (p *Provider) Stream(ctx context.Context, modelName string, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	if modelName == "" {
-		modelName = p.config.DefaultModel
+		return nil, fmt.Errorf("model name is required")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, p.config.Timeout)

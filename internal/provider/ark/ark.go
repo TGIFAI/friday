@@ -57,18 +57,12 @@ func (p *Provider) Close() error {
 }
 
 func (p *Provider) ListModels(_ context.Context) ([]provider.ModelInfo, error) {
-	return []provider.ModelInfo{
-		{
-			ID:       p.config.DefaultModel,
-			Name:     p.config.DefaultModel,
-			Provider: provider.Ark,
-		},
-	}, nil
+	return nil, nil
 }
 
 func (p *Provider) Generate(ctx context.Context, modelName string, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	if modelName == "" {
-		modelName = p.config.DefaultModel
+		return nil, fmt.Errorf("model name is required")
 	}
 	ctx, cancel := context.WithTimeout(ctx, p.config.Timeout)
 	defer cancel()
@@ -89,7 +83,7 @@ func (p *Provider) Generate(ctx context.Context, modelName string, input []*sche
 
 func (p *Provider) Stream(ctx context.Context, modelName string, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	if modelName == "" {
-		modelName = p.config.DefaultModel
+		return nil, fmt.Errorf("model name is required")
 	}
 	ctx, cancel := context.WithTimeout(ctx, p.config.Timeout)
 	defer cancel()
@@ -194,10 +188,6 @@ func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (mode
 	if p.config.BaseURL != "" {
 		arkCfg.BaseURL = p.config.BaseURL
 	}
-	if p.config.Temperature > 0 {
-		arkCfg.Temperature = &p.config.Temperature
-	}
-
 	chatModel, err := arkmodel.NewResponsesAPIChatModel(ctx, arkCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ark responses API model for %s: %w", modelName, err)

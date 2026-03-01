@@ -12,13 +12,10 @@ type Config struct {
 	ID           string
 	APIKey       string
 	AccessKey    string
-	SecretKey    string
-	BaseURL      string
-	DefaultModel string
-	Timeout      time.Duration
+	SecretKey string
+	BaseURL   string
+	Timeout   time.Duration
 	MaxRetries   int
-	Temperature  float32
-
 	// SessionCacheEnabled controls whether session caching is automatically
 	// applied. When true, the SDK stores both inputs and responses for each
 	// conversation turn and trims already-cached messages on subsequent calls.
@@ -37,9 +34,6 @@ func (c *Config) Validate() error {
 	}
 	if c.APIKey == "" && (c.AccessKey == "" || c.SecretKey == "") {
 		return errors.New("either api_key or access_key+secret_key is required")
-	}
-	if c.DefaultModel == "" {
-		return errors.New("default_model (endpoint ID) is required")
 	}
 	if c.Timeout <= 0 {
 		return errors.New("timeout must be positive")
@@ -70,10 +64,6 @@ func ParseConfig(id string, configMap map[string]any) (*Config, error) {
 		config.BaseURL = baseURL
 	}
 
-	if defaultModel := gconv.To[string](configMap["default_model"]); defaultModel != "" {
-		config.DefaultModel = defaultModel
-	}
-
 	if timeout := gconv.To[int](configMap["timeout"]); timeout > 0 {
 		config.Timeout = time.Duration(timeout) * time.Second
 	} else {
@@ -85,8 +75,6 @@ func ParseConfig(id string, configMap map[string]any) (*Config, error) {
 	} else {
 		config.MaxRetries = 3
 	}
-
-	config.Temperature = float32(gconv.To[float64](configMap["temperature"]))
 
 	if v, ok := configMap["session_cache_enabled"]; ok {
 		config.SessionCacheEnabled = gconv.To[bool](v)

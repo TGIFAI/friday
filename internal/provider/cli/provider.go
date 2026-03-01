@@ -32,9 +32,9 @@ func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider
 	var backend Backend
 	switch cfg.Backend {
 	case "claude-code":
-		backend = &ClaudeCode{model: cfg.DefaultModel, workDir: cfg.WorkDir}
+		backend = &ClaudeCode{workDir: cfg.WorkDir}
 	case "codex":
-		backend = &Codex{model: cfg.DefaultModel, workDir: cfg.WorkDir}
+		backend = &Codex{workDir: cfg.WorkDir}
 	default:
 		return nil, fmt.Errorf("unsupported cli backend: %s", cfg.Backend)
 	}
@@ -48,10 +48,7 @@ func (p *Provider) IsAvailable() bool   { return p.backend.Available() }
 func (p *Provider) Close() error        { return nil }
 
 func (p *Provider) ListModels(_ context.Context) ([]provider.ModelInfo, error) {
-	name := p.config.DefaultModel
-	if name == "" {
-		name = p.backend.Name()
-	}
+	name := p.backend.Name()
 	return []provider.ModelInfo{{
 		ID:       name,
 		Name:     name,
@@ -63,7 +60,7 @@ func (p *Provider) RegisterTools(_ []*schema.ToolInfo) {}
 
 func (p *Provider) Generate(ctx context.Context, modelName string, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
 	if modelName == "" {
-		modelName = p.config.DefaultModel
+		return nil, fmt.Errorf("model name is required")
 	}
 
 	// Apply timeout.

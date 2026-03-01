@@ -10,10 +10,9 @@ import (
 
 type Config struct {
 	ID           string
-	APIKey       string
-	BaseURL      string
-	DefaultModel string
-	Timeout      time.Duration
+	APIKey  string
+	BaseURL string
+	Timeout time.Duration
 	MaxRetries   int
 }
 
@@ -26,9 +25,6 @@ func (c *Config) Validate() error {
 	}
 	if c.BaseURL == "" {
 		c.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	}
-	if c.DefaultModel == "" {
-		c.DefaultModel = "qwen-plus"
 	}
 	if c.Timeout == 0 {
 		c.Timeout = 300 * time.Second
@@ -59,12 +55,6 @@ func ParseConfig(id string, configMap map[string]interface{}) (*Config, error) {
 		config.BaseURL = baseURL
 	} else {
 		config.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	}
-
-	if defaultModel := gconv.To[string](configMap["default_model"]); defaultModel != "" {
-		config.DefaultModel = defaultModel
-	} else {
-		config.DefaultModel = "qwen-plus"
 	}
 
 	if timeout := gconv.To[int](configMap["timeout"]); timeout > 0 {
