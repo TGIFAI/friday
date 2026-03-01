@@ -46,7 +46,7 @@ type Channel interface {
 
 	// SendMessage sends text content to the target chat.
 	// chatID is provider-specific and is passed as a string for portability.
-	SendMessage(ctx context.Context, chatID string, content string) error
+	SendMessage(ctx context.Context, chatID string, content string, opts ...SendOption) error
 
 	// SendChatAction sends a transient user-visible activity state
 	// (for example "typing") to the target chat.
