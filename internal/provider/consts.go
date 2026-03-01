@@ -19,6 +19,8 @@ const (
 	L0Cache = "l0cache"
 	L1Cache = "l1cache"
 	L2Cache = "l2cache"
+
+	CacheInvalidate = "cache_invalidate"
 )
 
 var SupportedProviders = []Type{

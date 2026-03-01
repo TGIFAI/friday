@@ -27,8 +27,7 @@ type Session struct {
 	updateTime time.Time
 	expireAt   time.Time
 
-	msgCnt      int64
-	toolCallCnt int64
+	msgCnt int64
 
 	dirty   bool
 	version uint64
@@ -53,7 +52,6 @@ func (s *Session) Clear() {
 
 	s.messages = s.messages[:0]
 	s.msgCnt = 0
-	s.toolCallCnt = 0
 	s.updateTime = time.Now()
 	s.markMutationLocked()
 }
@@ -81,12 +79,6 @@ func (s *Session) MsgCount() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.msgCnt
-}
-
-func (s *Session) ToolCallCount() int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.toolCallCnt
 }
 
 func (s *Session) UpdatedAt() time.Time {

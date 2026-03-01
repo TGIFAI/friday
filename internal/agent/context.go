@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,26 +19,47 @@ import (
 	"github.com/tgifai/friday/internal/provider"
 )
 
-func (ag *Agent) buildMessages(sess *session.Session, msg *channel.Message) []*schema.Message {
+const (
+	metaKeyPromptHash = "sys_prompt_hash"
+	promptHashSep     = "\x00" // null byte separator to avoid field-boundary collisions
+)
+
+func (ag *Agent) buildMessages(ctx context.Context, sess *session.Session, msg *channel.Message) []*schema.Message {
 	msgs := make([]*schema.Message, 0, 32)
 
 	// System ①: built-in definitions (binary-stable, highest cache value)
-	if text := ag.buildBuiltinPrompt(); text != "" {
-		msgs = append(msgs, &schema.Message{Role: schema.System, Content: text, Extra: map[string]any{provider.L0Cache: true}})
+	builtinText := ag.buildBuiltinPrompt()
+	if builtinText != "" {
+		msgs = append(msgs, &schema.Message{Role: schema.System, Content: builtinText, Extra: map[string]any{provider.L0Cache: true}})
 	}
 
 	// System ②: workspace persona (user-editable, rarely changes)
-	if text := ag.buildWorkspacePrompt(); text != "" {
-		msgs = append(msgs, &schema.Message{Role: schema.System, Content: text, Extra: map[string]any{provider.L1Cache: true}})
+	workspaceText := ag.buildWorkspacePrompt()
+	if workspaceText != "" {
+		msgs = append(msgs, &schema.Message{Role: schema.System, Content: workspaceText, Extra: map[string]any{provider.L1Cache: true}})
 	}
 
 	// System ③: dynamic context (changes per-day or per-request)
-	if text := ag.buildDynamicPrompt(msg); text != "" {
-		msgs = append(msgs, &schema.Message{Role: schema.System, Content: text, Extra: map[string]any{provider.L2Cache: true}})
+	dynamicText := ag.buildDynamicPrompt(msg)
+	if dynamicText != "" {
+		msgs = append(msgs, &schema.Message{Role: schema.System, Content: dynamicText, Extra: map[string]any{provider.L2Cache: true}})
 	}
 
-	// Session history
+	// Hash-based cache invalidation: detect system prompt changes.
+	// Use ①+②+③ content for hash.
 	if sess != nil {
+		newHash := hashPrompts(builtinText, workspaceText, dynamicText)
+		if prev := sess.GetMeta(metaKeyPromptHash); prev != "" && prev != newHash {
+			if len(msgs) > 0 {
+				if msgs[0].Extra == nil {
+					msgs[0].Extra = make(map[string]any)
+				}
+				msgs[0].Extra[provider.CacheInvalidate] = true
+			}
+			logs.CtxDebug(ctx, "system prompt change detected, prev: %s hash: %s", prev, newHash)
+		}
+		sess.SetMeta(metaKeyPromptHash, newHash)
+
 		msgs = append(msgs, sess.History()...)
 	}
 

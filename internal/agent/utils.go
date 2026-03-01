@@ -3,11 +3,14 @@ package agent
 import (
 	"encoding/base64"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 
 	"github.com/cloudwego/eino/schema"
+
 	"github.com/tgifai/friday/internal/channel"
 )
 
@@ -71,4 +74,18 @@ func defaultShell() string {
 		return "powershell"
 	}
 	return "sh"
+}
+
+// hashPrompts computes a hash over multiple prompt sections, writing each
+// directly into the hasher with a null-byte separator to avoid allocating a
+// joined string.
+func hashPrompts(parts ...string) string {
+	h := fnv.New64a()
+	for i, p := range parts {
+		if i > 0 {
+			h.Write([]byte(promptHashSep))
+		}
+		h.Write([]byte(p))
+	}
+	return strconv.FormatUint(h.Sum64(), 36)
 }

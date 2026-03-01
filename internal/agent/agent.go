@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -51,6 +52,7 @@ type Agent struct {
 	enqueue          EnqueueFunc // allows agent to self-enqueue messages (set by gateway)
 	consolidateEvery int
 	flushCooldown    time.Duration
+	toolsRegistered  sync.Map // providerID → true; ensures RegisterTools is called once per provider
 }
 
 func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
@@ -238,9 +240,6 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 		}
 	}()
 
-	// Append the user message exactly once for this turn.
-	sess.Append(buildUserMessage(msg))
-
 	var resp *channel.Response
 	models := append([]string{agCfg.Models.Primary}, agCfg.Models.Fallback...)
 	for _, spec := range models {
@@ -254,7 +253,9 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 			logs.CtxWarn(ctx, "[agent:%s] provider not found: %s", ag.id, ms.ProviderID)
 			continue
 		}
-		prov.RegisterTools(ag.tools.ListToolInfos())
+		if _, loaded := ag.toolsRegistered.LoadOrStore(ms.ProviderID, true); !loaded {
+			prov.RegisterTools(ag.tools.ListToolInfos())
+		}
 		resp, err = ag.runLoop(ctx, prov, ms, sess, msg, agCfg.Config)
 		if err != nil {
 			logs.CtxWarn(ctx, "[agent:%s] model %s failed: %v", ag.id, ms, err)
@@ -417,11 +418,14 @@ func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 		},
 	}
 
+	// Detach from request context so the flush is not cancelled when the
+	// HTTP handler returns.
+	flushCtx := context.WithoutCancel(ctx)
 	go func() {
-		if err := ag.enqueue(ctx, flushMsg); err != nil {
-			logs.CtxWarn(ctx, "[agent:%s] consolidation flush enqueue failed: %v", ag.id, err)
+		if err := ag.enqueue(flushCtx, flushMsg); err != nil {
+			logs.CtxWarn(flushCtx, "[agent:%s] consolidation flush enqueue failed: %v", ag.id, err)
 		} else {
-			logs.CtxInfo(ctx, "[agent:%s] consolidation flush triggered at msg count %d", ag.id, count)
+			logs.CtxInfo(flushCtx, "[agent:%s] consolidation flush triggered at msg count %d", ag.id, count)
 		}
 	}()
 }
