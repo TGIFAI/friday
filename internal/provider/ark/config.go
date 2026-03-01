@@ -24,6 +24,11 @@ type Config struct {
 	// conversation turn and trims already-cached messages on subsequent calls.
 	// Default: false (opt-in).
 	SessionCacheEnabled bool
+
+	// SessionCacheTTL is the cache time-to-live in seconds.
+	// Maximum allowed by the API is 259200 (3 days).
+	// Default: 7200 (2 hours).
+	SessionCacheTTL int
 }
 
 func (c *Config) Validate() error {
@@ -85,6 +90,12 @@ func ParseConfig(id string, configMap map[string]any) (*Config, error) {
 
 	if v, ok := configMap["session_cache_enabled"]; ok {
 		config.SessionCacheEnabled = gconv.To[bool](v)
+	}
+
+	if ttl := gconv.To[int](configMap["session_cache_ttl"]); ttl > 0 {
+		config.SessionCacheTTL = ttl
+	} else {
+		config.SessionCacheTTL = 7200 // 2 hours
 	}
 
 	if err := config.Validate(); err != nil {

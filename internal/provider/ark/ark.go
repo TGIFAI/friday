@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	arkmodel "github.com/cloudwego/eino-ext/components/model/ark"
 	"github.com/cloudwego/eino/components/model"
@@ -118,9 +119,12 @@ func (p *Provider) appendSessionCacheOpts(input []*schema.Message, opts []model.
 		_ = arkmodel.InvalidateMessageCaches(input)
 	}
 
+	cleanExpiredCacheMeta(input)
+
 	opts = append(opts, arkmodel.WithCache(&arkmodel.CacheOption{
 		SessionCache: &arkmodel.SessionCacheConfig{
 			EnableCache: true,
+			TTL:         p.config.SessionCacheTTL,
 		},
 	}))
 	return opts
@@ -136,6 +140,29 @@ func shouldInvalidateCache(msgs []*schema.Message) bool {
 		}
 	}
 	return false
+}
+
+const (
+	arkExtraKeyCacheExpireAt = "ark-response-cache-expire-at"
+	arkExtraKeyResponseID    = "ark-response-id"
+)
+
+// cleanExpiredCacheMeta removes stale cache metadata from messages whose
+// cache has already expired. This prevents JSONL session files from
+// accumulating obsolete ark-response-cache-expire-at / ark-response-id
+// entries and avoids sending expired expire_at values to the API.
+func cleanExpiredCacheMeta(msgs []*schema.Message) {
+	now := time.Now().Unix()
+	for _, msg := range msgs {
+		expireAt, ok := arkmodel.GetCacheExpiration(msg)
+		if !ok || expireAt <= 0 {
+			continue
+		}
+		if expireAt < now {
+			delete(msg.Extra, arkExtraKeyCacheExpireAt)
+			delete(msg.Extra, arkExtraKeyResponseID)
+		}
+	}
 }
 
 func (p *Provider) getOrCreateModel(ctx context.Context, modelName string) (model.ToolCallingChatModel, error) {
