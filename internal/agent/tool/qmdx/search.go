@@ -34,12 +34,26 @@ func (t *SearchTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"query":      "string (required) - search keywords or natural-language question",
-			"collection": "string (optional) - restrict search to a named collection",
-			"mode":       "string (optional) - 'query' (default, hybrid+rerank), 'search' (BM25 only), 'vsearch' (vector only)",
-			"limit":      "number (optional) - max results, default 5",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"query": {
+				Type:     schema.String,
+				Desc:     "Search keywords or natural-language question",
+				Required: true,
+			},
+			"collection": {
+				Type: schema.String,
+				Desc: "Restrict search to a named collection",
+			},
+			"mode": {
+				Type: schema.String,
+				Desc: "Search mode: query (hybrid+rerank, default), search (BM25 only), vsearch (vector only)",
+				Enum: []string{"query", "search", "vsearch"},
+			},
+			"limit": {
+				Type: schema.Integer,
+				Desc: "Max results to return (default 5)",
+			},
+		}),
 	}
 }
 

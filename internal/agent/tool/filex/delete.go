@@ -25,9 +25,13 @@ func (t *DeleteTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"path": "string (required) - file path",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"path": {
+				Type:     schema.String,
+				Desc:     "File path to delete",
+				Required: true,
+			},
+		}),
 	}
 }
 

@@ -31,28 +31,25 @@ func (t *FileTool) Description() string {
 }
 
 func (t *FileTool) ToolInfo() *schema.ToolInfo {
-
 	return &schema.ToolInfo{
 		Name: "file",
 		Desc: "File operations: read_file(path), write_file(path, content), list_dir(path), delete_file(path)",
-
-		ParamsOneOf: nil,
-		Extra: map[string]interface{}{
-			"operations": []string{"read_file", "write_file", "list_dir", "delete_file"},
-			"read_file": map[string]interface{}{
-				"path": "string (required) - File path to read",
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"operation": {
+				Type: schema.String,
+				Desc: "Operation to perform: read_file, write_file, list_dir, delete_file",
+				Enum: []string{"read_file", "write_file", "list_dir", "delete_file"},
 			},
-			"write_file": map[string]interface{}{
-				"path":    "string (required) - File path to write",
-				"content": "string (required) - Content to write",
+			"path": {
+				Type:     schema.String,
+				Desc:     "File or directory path",
+				Required: true,
 			},
-			"list_dir": map[string]interface{}{
-				"path": "string (required) - Directory path to list",
+			"content": {
+				Type: schema.String,
+				Desc: "File content (required for write_file)",
 			},
-			"delete_file": map[string]interface{}{
-				"path": "string (required) - File path to delete",
-			},
-		},
+		}),
 	}
 }
 

@@ -30,11 +30,23 @@ func (t *MessageTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"chanId":  "string (required) - channel id",
-			"chatId":  "string (required) - chat id",
-			"content": "string (required) - message content",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"chanId": {
+				Type:     schema.String,
+				Desc:     "Channel ID to send the message to",
+				Required: true,
+			},
+			"chatId": {
+				Type:     schema.String,
+				Desc:     "Chat ID within the channel",
+				Required: true,
+			},
+			"content": {
+				Type:     schema.String,
+				Desc:     "Message content to send",
+				Required: true,
+			},
+		}),
 	}
 }
 

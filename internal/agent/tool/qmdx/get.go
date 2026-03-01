@@ -30,9 +30,13 @@ func (t *GetTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"path": "string (required) - file path or document ID (#abc123)",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"path": {
+				Type:     schema.String,
+				Desc:     "File path or document ID (e.g. #abc123)",
+				Required: true,
+			},
+		}),
 	}
 }
 

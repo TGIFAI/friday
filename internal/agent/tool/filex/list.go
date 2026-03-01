@@ -26,9 +26,13 @@ func (t *ListTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"path": "string (required) - directory path",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"path": {
+				Type:     schema.String,
+				Desc:     "Directory path to list",
+				Required: true,
+			},
+		}),
 	}
 }
 

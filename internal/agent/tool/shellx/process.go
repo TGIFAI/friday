@@ -69,13 +69,30 @@ func (t *ProcessTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"action":      "string (required) - start|status|log|kill|list",
-			"process_id":  "string (required for status|log|kill)",
-			"command":     "string|[]string (required for start)",
-			"working_dir": "string (optional, start only)",
-			"tail":        "number (optional, log only) - max bytes per stream",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"action": {
+				Type:     schema.String,
+				Desc:     "Action to perform: start, status, log, kill, list",
+				Required: true,
+				Enum:     []string{"start", "status", "log", "kill", "list"},
+			},
+			"process_id": {
+				Type: schema.String,
+				Desc: "Process ID (required for status, log, kill)",
+			},
+			"command": {
+				Type: schema.String,
+				Desc: "Command string or JSON array of argv strings (required for start)",
+			},
+			"working_dir": {
+				Type: schema.String,
+				Desc: "Working directory (optional, start only)",
+			},
+			"tail": {
+				Type: schema.Integer,
+				Desc: "Max bytes per stream to return (optional, log only, default 4096)",
+			},
+		}),
 	}
 }
 

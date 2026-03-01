@@ -30,14 +30,34 @@ func (t *EditTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"path":        "string (required) - file path",
-			"old_text":    "string (optional) - text to replace",
-			"new_text":    "string (required) - replacement text",
-			"replace_all": "bool (optional, default true) - replace all matches",
-			"start_line":  "number (optional) - 1-based start line",
-			"end_line":    "number (optional) - 1-based end line",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"path": {
+				Type:     schema.String,
+				Desc:     "File path to edit",
+				Required: true,
+			},
+			"old_text": {
+				Type: schema.String,
+				Desc: "Text to replace (omit to use line-range mode)",
+			},
+			"new_text": {
+				Type:     schema.String,
+				Desc:     "Replacement text",
+				Required: true,
+			},
+			"replace_all": {
+				Type: schema.Boolean,
+				Desc: "Replace all matches (default true)",
+			},
+			"start_line": {
+				Type: schema.Integer,
+				Desc: "1-based start line (for line-range mode)",
+			},
+			"end_line": {
+				Type: schema.Integer,
+				Desc: "1-based end line (for line-range mode)",
+			},
+		}),
 	}
 }
 

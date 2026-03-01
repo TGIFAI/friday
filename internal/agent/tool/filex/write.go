@@ -26,10 +26,18 @@ func (t *WriteTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"path":    "string (required) - file path",
-			"content": "string (required) - full file content",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"path": {
+				Type:     schema.String,
+				Desc:     "File path to write",
+				Required: true,
+			},
+			"content": {
+				Type:     schema.String,
+				Desc:     "Full file content to write",
+				Required: true,
+			},
+		}),
 	}
 }
 

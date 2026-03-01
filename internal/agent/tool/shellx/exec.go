@@ -53,11 +53,21 @@ func (t *ExecTool) ToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: t.Name(),
 		Desc: t.Description(),
-		Extra: map[string]interface{}{
-			"command":     "string|[]string (required) - command string or argv array",
-			"working_dir": "string (optional) - working directory",
-			"timeout":     "number (optional) - timeout in seconds",
-		},
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"command": {
+				Type:     schema.String,
+				Desc:     "Command string (shell) or JSON array of argv strings",
+				Required: true,
+			},
+			"working_dir": {
+				Type: schema.String,
+				Desc: "Working directory (optional, defaults to workspace)",
+			},
+			"timeout": {
+				Type: schema.Number,
+				Desc: "Timeout in seconds (optional, default 60, max 600)",
+			},
+		}),
 	}
 }
 
