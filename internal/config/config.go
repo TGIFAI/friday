@@ -64,7 +64,6 @@ type (
 
 	AgentRuntimeConfig struct {
 		MaxIterations int     `yaml:"max_iterations"`
-		MaxTokens     int     `yaml:"max_tokens"`
 		Temperature   float64 `yaml:"temperature"`
 	}
 

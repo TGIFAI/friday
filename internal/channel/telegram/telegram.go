@@ -216,10 +216,19 @@ func (c *Telegram) newWebhookHandler() app.HandlerFunc {
 	}
 }
 
-func (c *Telegram) SendMessage(ctx context.Context, chatID string, content string) error {
+func (c *Telegram) SendMessage(ctx context.Context, chatID string, content string, opts ...channel.SendOption) error {
 	chatIDInt, err := strconv.ParseInt(chatID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid chat ID: %w", err)
+	}
+
+	o := channel.ApplySendOptions(opts)
+
+	var replyParams *models.ReplyParameters
+	if o.ReplyToMsgID != "" {
+		if msgIDInt, err := strconv.Atoi(o.ReplyToMsgID); err == nil {
+			replyParams = &models.ReplyParameters{MessageID: msgIDInt}
+		}
 	}
 
 	entityText, entities := convertMarkdownEntities(content)
@@ -228,16 +237,18 @@ func (c *Telegram) SendMessage(ctx context.Context, chatID string, content strin
 	}
 
 	_, err = c.bot.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:   chatIDInt,
-		Text:     entityText,
-		Entities: entities,
+		ChatID:          chatIDInt,
+		Text:            entityText,
+		Entities:        entities,
+		ReplyParameters: replyParams,
 	})
 
 	if err != nil {
 		logs.CtxWarn(ctx, "[channel:telegram] HTML parse failed, falling back to plain text: %v", err)
 		_, err = c.bot.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatIDInt,
-			Text:   content,
+			ChatID:          chatIDInt,
+			Text:            content,
+			ReplyParameters: replyParams,
 		})
 	}
 

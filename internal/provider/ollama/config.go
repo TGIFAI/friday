@@ -9,10 +9,9 @@ import (
 )
 
 type Config struct {
-	ID           string
-	BaseURL      string
-	DefaultModel string
-	Timeout      time.Duration
+	ID      string
+	BaseURL string
+	Timeout time.Duration
 	MaxRetries   int
 }
 
@@ -22,9 +21,6 @@ func (c *Config) Validate() error {
 	}
 	if c.BaseURL == "" {
 		c.BaseURL = "http://127.0.0.1:11434"
-	}
-	if c.DefaultModel == "" {
-		c.DefaultModel = "llama3.1"
 	}
 	if c.Timeout == 0 {
 		c.Timeout = 300 * time.Second
@@ -42,12 +38,6 @@ func ParseConfig(id string, configMap map[string]interface{}) (*Config, error) {
 		config.BaseURL = baseURL
 	} else {
 		config.BaseURL = "http://127.0.0.1:11434"
-	}
-
-	if defaultModel := gconv.To[string](configMap["default_model"]); defaultModel != "" {
-		config.DefaultModel = defaultModel
-	} else {
-		config.DefaultModel = "llama3.1"
 	}
 
 	if timeout := gconv.To[int](configMap["timeout"]); timeout > 0 {

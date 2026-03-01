@@ -110,7 +110,7 @@ func (h *HTTP) Stop(_ context.Context) error {
 // SendMessage delivers the agent reply to the pending HTTP request identified
 // by chatID. If no pending request is found (e.g. timed out), the message is
 // silently dropped.
-func (h *HTTP) SendMessage(_ context.Context, chatID string, content string) error {
+func (h *HTTP) SendMessage(_ context.Context, chatID string, content string, _ ...channel.SendOption) error {
 	h.pendingMu.Lock()
 	pr, ok := h.pending[chatID]
 	if ok {

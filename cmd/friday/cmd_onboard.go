@@ -362,7 +362,6 @@ func (r *OnboardRunner) stepConfirm(
 				},
 				Config: config.AgentRuntimeConfig{
 					MaxIterations: 25,
-					MaxTokens:     4000,
 					Temperature:   0.7,
 				},
 			},

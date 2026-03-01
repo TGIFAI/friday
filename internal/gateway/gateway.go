@@ -458,7 +458,7 @@ func (gw *Gateway) processMessage(ctx context.Context, msg *channel.Message) err
 		return nil
 	}
 
-	if err := ch.SendMessage(ctx, msg.ChatID, resp.Content); err != nil {
+	if err := ch.SendMessage(ctx, msg.ChatID, resp.Content, channel.WithReplyTo(msg.ID)); err != nil {
 		return fmt.Errorf("send reply via channel %s failed: %w", msg.ChannelID, err)
 	}
 	logs.CtxDebug(ctx, "[msg] -> (%s/%s#%s) %s", msg.ChannelType, msg.ChannelID, msg.ChatID, pkgutils.Truncate80(resp.Content))

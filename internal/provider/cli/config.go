@@ -9,10 +9,9 @@ import (
 )
 
 type Config struct {
-	ID           string
-	Backend      string // "claude-code" or "codex"
-	DefaultModel string
-	Timeout      time.Duration
+	ID      string
+	Backend string // "claude-code" or "codex"
+	Timeout time.Duration
 	WorkDir      string
 }
 
@@ -35,10 +34,6 @@ func ParseConfig(id string, configMap map[string]interface{}) (*Config, error) {
 	cfg := &Config{ID: id}
 
 	cfg.Backend = gconv.To[string](configMap["backend"])
-
-	if defaultModel := gconv.To[string](configMap["default_model"]); defaultModel != "" {
-		cfg.DefaultModel = defaultModel
-	}
 
 	if timeout := gconv.To[int](configMap["timeout"]); timeout > 0 {
 		cfg.Timeout = time.Duration(timeout) * time.Second

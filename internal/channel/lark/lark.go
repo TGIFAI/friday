@@ -172,7 +172,7 @@ func (l *Lark) Stop(_ context.Context) error {
 // maxPostContentSize is the upper bound for a Lark post message content (30 KB).
 const maxPostContentSize = 30 * 1024
 
-func (l *Lark) SendMessage(ctx context.Context, chatID, content string) error {
+func (l *Lark) SendMessage(ctx context.Context, chatID, content string, opts ...channel.SendOption) error {
 	// refer to https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json#45e0953e
 	post := map[string]interface{}{
 		"zh_cn": map[string]interface{}{
@@ -184,6 +184,27 @@ func (l *Lark) SendMessage(ctx context.Context, chatID, content string) error {
 		},
 	}
 	serialized, _ := sonic.MarshalString(post)
+
+	o := channel.ApplySendOptions(opts)
+
+	// Use Reply API when replying to a specific message.
+	if o.ReplyToMsgID != "" {
+		resp, err := l.client.Im.Message.Reply(ctx,
+			larkim.NewReplyMessageReqBuilder().
+				MessageId(o.ReplyToMsgID).
+				Body(larkim.NewReplyMessageReqBodyBuilder().
+					MsgType(larkim.MsgTypePost).
+					Content(serialized).
+					Build()).
+				Build())
+		if err != nil {
+			return fmt.Errorf("lark reply message: %w", err)
+		}
+		if !resp.Success() {
+			return fmt.Errorf("lark reply message failed: code=%d msg=%s", resp.Code, resp.Msg)
+		}
+		return nil
+	}
 
 	resp, err := l.client.Im.Message.Create(ctx,
 		larkim.NewCreateMessageReqBuilder().

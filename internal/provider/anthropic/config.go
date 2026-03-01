@@ -10,10 +10,9 @@ import (
 
 type Config struct {
 	ID           string
-	APIKey       string
-	BaseURL      string
-	DefaultModel string
-	MaxTokens    int
+	APIKey    string
+	BaseURL   string
+	MaxTokens int
 	Timeout      time.Duration
 	MaxRetries   int
 }
@@ -27,9 +26,6 @@ func (c *Config) Validate() error {
 	}
 	if c.BaseURL == "" {
 		c.BaseURL = "https://api.anthropic.com"
-	}
-	if c.DefaultModel == "" {
-		c.DefaultModel = "claude-3-5-sonnet-20241022"
 	}
 	if c.MaxTokens <= 0 {
 		c.MaxTokens = 4096
@@ -64,12 +60,6 @@ func ParseConfig(id string, configMap map[string]interface{}) (*Config, error) {
 		config.BaseURL = baseURL
 	} else {
 		config.BaseURL = "https://api.anthropic.com"
-	}
-
-	if defaultModel := gconv.To[string](configMap["default_model"]); defaultModel != "" {
-		config.DefaultModel = defaultModel
-	} else {
-		config.DefaultModel = "claude-3-5-sonnet-20241022"
 	}
 
 	if maxTokens := gconv.To[int](configMap["max_tokens"]); maxTokens > 0 {

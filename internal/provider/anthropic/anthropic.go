@@ -28,14 +28,9 @@ type Provider struct {
 }
 
 func (p *Provider) RegisterTools(tools []*schema.ToolInfo) {
-	p.toolsOnce.Do(func() {
-		if len(tools) > 0 {
-			// Mark the last tool with a cache breakpoint so that Claude's
-			// prompt caching can reuse the tool definitions across requests.
-			tools[len(tools)-1] = claude.SetToolInfoBreakpoint(tools[len(tools)-1])
-		}
-		p.tools = tools
-	})
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tools = tools
 }
 
 func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider, error) {
@@ -132,7 +127,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.ModelInfo, error)
 
 func (p *Provider) Generate(ctx context.Context, modelName string, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	if modelName == "" {
-		modelName = p.config.DefaultModel
+		return nil, fmt.Errorf("model name is required")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, p.config.Timeout)
@@ -157,7 +152,7 @@ func (p *Provider) Generate(ctx context.Context, modelName string, messages []*s
 
 func (p *Provider) Stream(ctx context.Context, modelName string, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	if modelName == "" {
-		modelName = p.config.DefaultModel
+		return nil, fmt.Errorf("model name is required")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, p.config.Timeout)
