@@ -28,14 +28,9 @@ type Provider struct {
 }
 
 func (p *Provider) RegisterTools(tools []*schema.ToolInfo) {
-	p.toolsOnce.Do(func() {
-		if len(tools) > 0 {
-			// Mark the last tool with a cache breakpoint so that Claude's
-			// prompt caching can reuse the tool definitions across requests.
-			tools[len(tools)-1] = claude.SetToolInfoBreakpoint(tools[len(tools)-1])
-		}
-		p.tools = tools
-	})
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tools = tools
 }
 
 func NewProvider(_ context.Context, id string, cfgMap map[string]any) (*Provider, error) {
