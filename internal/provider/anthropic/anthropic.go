@@ -145,6 +145,7 @@ func (p *Provider) Generate(ctx context.Context, modelName string, messages []*s
 
 	sanitizeMessages(messages)
 	setSystemBreakpoints(messages)
+	opts = append(opts, claude.WithEnableAutoCache(true))
 
 	resp, err := chatModel.Generate(ctx, messages, opts...)
 	if err != nil {
@@ -169,6 +170,7 @@ func (p *Provider) Stream(ctx context.Context, modelName string, messages []*sch
 
 	sanitizeMessages(messages)
 	setSystemBreakpoints(messages)
+	opts = append(opts, claude.WithEnableAutoCache(true))
 
 	streamReader, err := chatModel.Stream(ctx, messages, opts...)
 	if err != nil {
@@ -178,13 +180,27 @@ func (p *Provider) Stream(ctx context.Context, modelName string, messages []*sch
 	return streamReader, nil
 }
 
-// setSystemBreakpoints marks the last system message with a cache breakpoint
-// so that Claude's prompt caching covers all system prompts.
+// setSystemBreakpoints sets cache breakpoints on system messages to maximise
+// Claude's prompt prefix caching. Claude allows up to 4 breakpoints per
+// request; we allocate them as follows:
+//
+//	Slot  Source                 Trigger
+//	────  ─────────────────────  ──────────────────────────────
+//	 1    RegisterTools          last tool definition (binary-stable)
+//	 2    System ① L0Cache       built-in tools + skills (binary-stable)
+//	 3    System ② L1Cache       workspace persona files (user-editable, rarely changes)
+//	 4    WithEnableAutoCache    last user/assistant message (session history)
+//
+// System ③ (L2Cache) carries per-request dynamic content (runtime info,
+// memory, daily memory) and is intentionally left without a breakpoint —
+// spending a slot on content that changes every call yields no cache hits.
 func setSystemBreakpoints(msgs []*schema.Message) {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == schema.System {
+	for i := range msgs {
+		if msgs[i].Role != schema.System {
+			continue
+		}
+		if msgs[i].Extra[provider.L0Cache] == true || msgs[i].Extra[provider.L1Cache] == true {
 			msgs[i] = claude.SetMessageBreakpoint(msgs[i])
-			return
 		}
 	}
 }

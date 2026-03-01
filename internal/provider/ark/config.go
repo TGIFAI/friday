@@ -8,8 +8,6 @@ import (
 	"github.com/bytedance/gg/gconv"
 )
 
-const defaultPrefixCacheTTL = 60 * 60 * 8 // 8hrs
-
 type Config struct {
 	ID           string
 	APIKey       string
@@ -21,14 +19,11 @@ type Config struct {
 	MaxRetries   int
 	Temperature  float32
 
-	// PrefixCacheEnabled controls whether prefix caching is automatically
-	// applied. When true (default), the provider creates a server-side prefix
-	// cache from system messages on the first Generate/Stream call and reuses
-	// the cached response ID on subsequent calls via the ResponsesAPI.
-	PrefixCacheEnabled bool
-	// PrefixCacheTTL is the time-to-live in seconds for the prefix cache.
-	// Default: 8hrs.
-	PrefixCacheTTL int
+	// SessionCacheEnabled controls whether session caching is automatically
+	// applied. When true, the SDK stores both inputs and responses for each
+	// conversation turn and trims already-cached messages on subsequent calls.
+	// Default: false (opt-in).
+	SessionCacheEnabled bool
 }
 
 func (c *Config) Validate() error {
@@ -47,16 +42,12 @@ func (c *Config) Validate() error {
 	if c.MaxRetries < 0 {
 		return errors.New("max_retries must be non-negative")
 	}
-	if c.PrefixCacheTTL <= 0 {
-		c.PrefixCacheTTL = defaultPrefixCacheTTL
-	}
 	return nil
 }
 
 func ParseConfig(id string, configMap map[string]any) (*Config, error) {
 	config := &Config{
-		ID:                 id,
-		PrefixCacheEnabled: true, // default on
+		ID: id,
 	}
 
 	apiKey := gconv.To[string](configMap["api_key"])
@@ -92,15 +83,8 @@ func ParseConfig(id string, configMap map[string]any) (*Config, error) {
 
 	config.Temperature = float32(gconv.To[float64](configMap["temperature"]))
 
-	// prefix_cache_enabled: defaults to true; set false to disable.
-	if v, ok := configMap["prefix_cache_enabled"]; ok {
-		config.PrefixCacheEnabled = gconv.To[bool](v)
-	}
-
-	if ttl := gconv.To[int](configMap["prefix_cache_ttl"]); ttl > 0 {
-		config.PrefixCacheTTL = ttl
-	} else {
-		config.PrefixCacheTTL = defaultPrefixCacheTTL
+	if v, ok := configMap["session_cache_enabled"]; ok {
+		config.SessionCacheEnabled = gconv.To[bool](v)
 	}
 
 	if err := config.Validate(); err != nil {

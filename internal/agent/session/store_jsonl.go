@@ -37,20 +37,19 @@ type jsonlRecordHeader struct {
 }
 
 type jsonlMetadataRecord struct {
-	Type        string            `json:"_type"`
-	SessionKey  string            `json:"session_key"`
-	AgentID     string            `json:"agent_id,omitempty"`
-	Channel     string            `json:"channel,omitempty"`
-	ChannelID   string            `json:"channel_id,omitempty"`
-	ChatID      string            `json:"chat_id,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	ExpireAt    time.Time         `json:"expire_at,omitempty"`
-	MsgCount    int64             `json:"msg_count"`
-	ToolCallCnt int64             `json:"tool_call_count"`
-	Format      string            `json:"format"`
-	Schema      int               `json:"schema"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Type       string            `json:"_type"`
+	SessionKey string            `json:"session_key"`
+	AgentID    string            `json:"agent_id,omitempty"`
+	Channel    string            `json:"channel,omitempty"`
+	ChannelID  string            `json:"channel_id,omitempty"`
+	ChatID     string            `json:"chat_id,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
+	ExpireAt   time.Time         `json:"expire_at,omitempty"`
+	MsgCount   int64             `json:"msg_count"`
+	Format     string            `json:"format"`
+	Schema     int               `json:"schema"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 type jsonlMessageRecord struct {
@@ -178,7 +177,6 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 		updateTime:      meta.UpdatedAt,
 		expireAt:        meta.ExpireAt,
 		msgCnt:          meta.MsgCount,
-		toolCallCnt:     meta.ToolCallCnt,
 		persistedMsgLen: len(msgs),
 	}
 	if sess.createTime.IsZero() {
@@ -228,20 +226,19 @@ func (s *jsonlStore) Save(ctx context.Context, sess *Session) error {
 	copy(messages, sess.messages)
 
 	meta := jsonlMetadataRecord{
-		Type:        "meta",
-		SessionKey:  sess.SessionKey,
-		AgentID:     sess.AgentID,
-		Channel:     string(sess.Channel),
-		ChannelID:   sess.ChannelID,
-		ChatID:      sess.ChatID,
-		CreatedAt:   sess.createTime,
-		UpdatedAt:   sess.updateTime,
-		ExpireAt:    sess.expireAt,
-		MsgCount:    sess.msgCnt,
-		ToolCallCnt: sess.toolCallCnt,
-		Format:      jsonlFormat,
-		Schema:      jsonlSchema,
-		Metadata:    sess.metadata,
+		Type:       "meta",
+		SessionKey: sess.SessionKey,
+		AgentID:    sess.AgentID,
+		Channel:    string(sess.Channel),
+		ChannelID:  sess.ChannelID,
+		ChatID:     sess.ChatID,
+		CreatedAt:  sess.createTime,
+		UpdatedAt:  sess.updateTime,
+		ExpireAt:   sess.expireAt,
+		MsgCount:   sess.msgCnt,
+		Format:     jsonlFormat,
+		Schema:     jsonlSchema,
+		Metadata:   sess.metadata,
 	}
 	sess.mu.RUnlock()
 
@@ -390,6 +387,7 @@ func marshalMessageLine(msg *schema.Message) (string, error) {
 		ToolCalls:  msg.ToolCalls,
 		ToolCallID: msg.ToolCallID,
 		ToolName:   msg.ToolName,
+		Extra:      msg.Extra,
 	}
 	rec := jsonlMessageRecord{
 		Type:    "msg",

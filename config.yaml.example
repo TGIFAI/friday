@@ -142,11 +142,9 @@ providers:
       # access_key: "${ARK_ACCESS_KEY}"
       # secret_key: "${ARK_SECRET_KEY}"
       # base_url: "https://ark.cn-beijing.volces.com/api/v3"
-      default_model: "${ARK_ENDPOINT_ID}"
+      base_url: "${ARK_ENDPOINT_ID}"
       timeout: 180
       max_retries: 3
       # temperature: 0.7
-      # Enable server-side prefix caching for system messages (default: true).
-      # prefix_cache_enabled: true
-      # Prefix cache TTL in seconds (default: 3600).
-      # prefix_cache_ttl: 3600
+      # Enable session caching for conversation history (default: false).
+      # session_cache_enabled: false

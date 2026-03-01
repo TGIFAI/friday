@@ -25,7 +25,13 @@ const (
 func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *provider.ModelSpec, sess *session.Session, msg *channel.Message, cfg config.AgentRuntimeConfig) (*channel.Response, error) {
 	// Inject session into context so CLI providers can access metadata.
 	ctx = session.WithContext(ctx, sess)
-	promptMsgs := ag.buildMessages(sess, msg)
+	promptMsgs := ag.buildMessages(ctx, sess, msg)
+
+	// Include user message in the prompt but defer session persistence
+	// until the loop completes successfully, preventing orphaned user
+	// messages when all models fail.
+	userMsg := buildUserMessage(msg)
+	promptMsgs = append(promptMsgs, userMsg)
 
 	maxIterations := defaultMaxIterations
 	if cfg.MaxIterations > 0 {
@@ -94,7 +100,8 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 		finalMsg = ag.runLoopSummary(ctx, p, modelSpec, append(promptMsgs, msgs...))
 	}
 
-	// Commit msgs tool-call turns and the final response to session.
+	// Commit user message, tool-call turns, and the final response to session.
+	sess.Append(userMsg)
 	for _, m := range msgs {
 		sess.Append(m)
 	}
