@@ -61,8 +61,10 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 			return nil, fmt.Errorf("LLM returned empty response from %s:%s", modelSpec.ProviderID, modelSpec.ModelName)
 		}
 
-		str, _ := sonic.MarshalString(llmResp)
-		logs.CtxDebug(ctx, "[agent:%s:%d] llmResp: %+v", ag.id, iter, str)
+		if logs.DefaultLogger().GetLevel() <= logs.DebugLevel {
+			str, _ := sonic.MarshalString(llmResp)
+			logs.CtxDebug(ctx, "[agent:%s:%d] llmResp: %+v", ag.id, iter, str)
+		}
 		if len(llmResp.ToolCalls) > 0 {
 			notifier.send(ctx, llmResp.Content, llmResp.ReasoningContent)
 			msgs = append(msgs, llmResp)

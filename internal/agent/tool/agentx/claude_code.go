@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tgifai/friday/internal/pkg/iobuf"
+
 	"github.com/bytedance/sonic"
 )
 
@@ -74,8 +76,8 @@ func (b *ClaudeCodeBackend) Run(ctx context.Context, req *RunRequest) (*RunResul
 		cmd.Dir = req.WorkingDir
 	}
 
-	stdout := newLimitedBuffer(maxOutputBytes)
-	stderr := newLimitedBuffer(maxOutputBytes)
+	stdout := iobuf.NewLimitedBuffer(maxOutputBytes)
+	stderr := iobuf.NewLimitedBuffer(maxOutputBytes)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
@@ -100,8 +102,8 @@ func (b *ClaudeCodeBackend) Start(ctx context.Context, req *RunRequest) (*Proces
 		cmd.Dir = req.WorkingDir
 	}
 
-	stdout := newLimitedBuffer(maxOutputBytes)
-	stderr := newLimitedBuffer(maxOutputBytes)
+	stdout := iobuf.NewLimitedBuffer(maxOutputBytes)
+	stderr := iobuf.NewLimitedBuffer(maxOutputBytes)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 

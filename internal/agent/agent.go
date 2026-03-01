@@ -121,7 +121,9 @@ func (ag *Agent) Init(ctx context.Context) error {
 	}
 
 	// skills
-	_ = ag.skills.LoadAll()
+	if err := ag.skills.LoadAll(); err != nil {
+		logs.Warn("[agent:%s] failed to load skills: %v", ag.id, err)
+	}
 
 	allowedPaths := []string{ag.workspace}
 	// Merge extra allowed paths from macOS sandbox bookmarks (colon-separated).

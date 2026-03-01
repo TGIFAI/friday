@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
+
+	"github.com/tgifai/friday/internal/pkg/iobuf"
 )
 
 // Backend abstracts CLI differences between Claude Code and Codex.
@@ -38,8 +40,8 @@ type RunResult struct {
 // Process represents a running async CLI invocation.
 type Process struct {
 	cmd    *exec.Cmd
-	stdout *limitedBuffer
-	stderr *limitedBuffer
+	stdout *iobuf.LimitedBuffer
+	stderr *iobuf.LimitedBuffer
 	done   chan struct{}
 
 	mu       sync.RWMutex
@@ -75,38 +77,6 @@ func (p *Process) Kill() {
 		_ = p.cmd.Process.Signal(os.Kill)
 	}
 }
-
-// limitedBuffer keeps only the first N bytes, then discards.
-type limitedBuffer struct {
-	max       int
-	data      []byte
-	truncated bool
-}
-
-func newLimitedBuffer(max int) *limitedBuffer {
-	return &limitedBuffer{max: max, data: make([]byte, 0, min(max, 64*1024))}
-}
-
-func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if b.truncated {
-		return len(p), nil
-	}
-	remaining := b.max - len(b.data)
-	if remaining <= 0 {
-		b.truncated = true
-		return len(p), nil
-	}
-	if len(p) > remaining {
-		b.data = append(b.data, p[:remaining]...)
-		b.truncated = true
-	} else {
-		b.data = append(b.data, p...)
-	}
-	return len(p), nil
-}
-
-func (b *limitedBuffer) String() string { return string(b.data) }
-func (b *limitedBuffer) Bytes() []byte  { return b.data }
 
 // seq is a package-level counter for generating unique session IDs.
 var seq atomic.Int64

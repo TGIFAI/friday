@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -37,7 +38,11 @@ func (r *Registry) Register(p Provider) error {
 func (r *Registry) Get(id string) (Provider, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.providers[id], nil
+	p, ok := r.providers[id]
+	if !ok {
+		return nil, fmt.Errorf("provider %q not registered", id)
+	}
+	return p, nil
 }
 
 func (r *Registry) List() []Provider {

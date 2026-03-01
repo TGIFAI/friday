@@ -51,9 +51,7 @@ type Gateway struct {
 	runCtx    context.Context
 	runCancel context.CancelFunc
 
-	mu       sync.Mutex
 	stopOnce sync.Once
-	stopErr  error
 }
 
 func NewGateway(cfg config.GatewayConfig) *Gateway {
@@ -164,7 +162,7 @@ func (gw *Gateway) Stop(ctx context.Context) error {
 
 		logs.CtxInfo(ctx, "[gateway] all resources stopped")
 	})
-	return gw.stopErr
+	return nil
 }
 
 func (gw *Gateway) initProviders(ctx context.Context, providers map[string]config.ProviderConfig) error {

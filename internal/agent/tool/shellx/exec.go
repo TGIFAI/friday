@@ -13,6 +13,7 @@ import (
 	"github.com/bytedance/gg/gconv"
 	"github.com/cloudwego/eino/schema"
 
+	"github.com/tgifai/friday/internal/pkg/iobuf"
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/security/sandbox"
 )
@@ -183,13 +184,13 @@ func runExecCommand(
 	}
 	setCommandProcessGroup(cmd)
 
-	stdoutBuf := newLimitedBuffer(maxExecOutputBytes)
-	stderrBuf := newLimitedBuffer(maxExecOutputBytes)
+	stdoutBuf := iobuf.NewLimitedBuffer(maxExecOutputBytes)
+	stderrBuf := iobuf.NewLimitedBuffer(maxExecOutputBytes)
 	cmd.Stdout = stdoutBuf
 	cmd.Stderr = stderrBuf
 
 	err := cmd.Run()
-	trunc := stdoutBuf.truncated || stderrBuf.truncated
+	trunc := stdoutBuf.Truncated() || stderrBuf.Truncated()
 	if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
 		killCommandProcessGroup(cmd)
 		return stdoutBuf.Bytes(), stderrBuf.Bytes(), 0, true, trunc, nil

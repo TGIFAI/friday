@@ -3,7 +3,6 @@ package gateway
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -180,27 +179,3 @@ func contains(list []string, item string) bool {
 	return false
 }
 
-// groupAllowed checks if a group chat is allowed based on channel config.
-// Used for non-private chats when ACL has no matching group entry.
-func groupAllowed(msg *channel.Message, chCfg config.ChannelConfig) bool {
-	chatType, _ := msg.Metadata["chat_type"]
-	if chatType == "private" || chatType == "" {
-		return true // not a group
-	}
-
-	// Check allowed_groups from channel config (Telegram-specific config
-	// stores int64 IDs, but the generic check works on ACL).
-	groupKey := "group:" + msg.ChatID
-	if _, exists := chCfg.ACL[groupKey]; exists {
-		return true // will be checked by ACL
-	}
-
-	// If there are user-level ACL rules but no group rules, allow the group
-	// (the user-level check handles authorization).
-	return true
-}
-
-// chatIDToInt64 is a helper for platforms that use numeric chat IDs.
-func chatIDToInt64(chatID string) (int64, error) {
-	return strconv.ParseInt(chatID, 10, 64)
-}

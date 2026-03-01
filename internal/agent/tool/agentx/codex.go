@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
+
+	"github.com/tgifai/friday/internal/pkg/iobuf"
 )
 
 // CodexBackend wraps the codex CLI in non-interactive mode.
@@ -107,8 +109,8 @@ func (b *CodexBackend) Run(ctx context.Context, req *RunRequest) (*RunResult, er
 		cmd.Dir = req.WorkingDir
 	}
 
-	stdout := newLimitedBuffer(maxOutputBytes)
-	stderr := newLimitedBuffer(maxOutputBytes)
+	stdout := iobuf.NewLimitedBuffer(maxOutputBytes)
+	stderr := iobuf.NewLimitedBuffer(maxOutputBytes)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
@@ -134,8 +136,8 @@ func (b *CodexBackend) Start(ctx context.Context, req *RunRequest) (*Process, er
 		cmd.Dir = req.WorkingDir
 	}
 
-	stdoutBuf := newLimitedBuffer(maxOutputBytes)
-	stderrBuf := newLimitedBuffer(maxOutputBytes)
+	stdoutBuf := iobuf.NewLimitedBuffer(maxOutputBytes)
+	stderrBuf := iobuf.NewLimitedBuffer(maxOutputBytes)
 	cmd.Stdout = stdoutBuf
 	cmd.Stderr = stderrBuf
 
