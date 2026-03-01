@@ -3,11 +3,9 @@ package agent
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +17,11 @@ import (
 	"github.com/tgifai/friday/internal/consts"
 	"github.com/tgifai/friday/internal/pkg/logs"
 	"github.com/tgifai/friday/internal/provider"
+)
+
+const (
+	metaKeyPromptHash = "sys_prompt_hash"
+	promptHashSep     = "\x00" // null byte separator to avoid field-boundary collisions
 )
 
 func (ag *Agent) buildMessages(ctx context.Context, sess *session.Session, msg *channel.Message) []*schema.Message {
@@ -45,8 +48,8 @@ func (ag *Agent) buildMessages(ctx context.Context, sess *session.Session, msg *
 	// Hash-based cache invalidation: detect system prompt changes.
 	// Use ①+②+③ content for hash.
 	if sess != nil {
-		newHash := hashPrompt(strings.Join([]string{builtinText, workspaceText, dynamicText}, "||#Hash#||"))
-		if prev := sess.GetMeta("sys_prompt_hash"); prev != "" && prev != newHash {
+		newHash := hashPrompts(builtinText, workspaceText, dynamicText)
+		if prev := sess.GetMeta(metaKeyPromptHash); prev != "" && prev != newHash {
 			if len(msgs) > 0 {
 				if msgs[0].Extra == nil {
 					msgs[0].Extra = make(map[string]any)
@@ -55,18 +58,12 @@ func (ag *Agent) buildMessages(ctx context.Context, sess *session.Session, msg *
 			}
 			logs.CtxDebug(ctx, "system prompt change detected, prev: %s hash: %s", prev, newHash)
 		}
-		sess.SetMeta("sys_prompt_hash", newHash)
+		sess.SetMeta(metaKeyPromptHash, newHash)
 
 		msgs = append(msgs, sess.History()...)
 	}
 
 	return msgs
-}
-
-func hashPrompt(s string) string {
-	h := fnv.New64a()
-	h.Write([]byte(s))
-	return strconv.FormatUint(h.Sum64(), 36)
 }
 
 // buildBuiltinPrompt returns the binary-stable system prompt containing

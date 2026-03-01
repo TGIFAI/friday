@@ -128,7 +128,10 @@ func (p *Provider) appendSessionCacheOpts(input []*schema.Message, opts []model.
 
 func shouldInvalidateCache(msgs []*schema.Message) bool {
 	for _, m := range msgs {
-		if m.Role == schema.System && m.Extra[provider.CacheInvalidate] == true {
+		if m.Role != schema.System {
+			break // system messages are always at the head
+		}
+		if m.Extra[provider.CacheInvalidate] == true {
 			return true
 		}
 	}
