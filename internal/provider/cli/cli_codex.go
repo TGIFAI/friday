@@ -13,7 +13,12 @@ type Codex struct {
 	workDir string
 }
 
-func (b *Codex) Run(ctx context.Context, _ string, prompt string) (string, string, error) {
+func (b *Codex) Run(ctx context.Context, opts RunOpts, prompt string) (string, error) {
+	// Codex has no native system-prompt flag; prepend to the user prompt.
+	if opts.SystemPrompt != "" {
+		prompt = "[System]\n" + opts.SystemPrompt + "\n\n" + prompt
+	}
+
 	args := []string{
 		"-q", prompt,
 		"--full-auto", // non-interactive subprocess, must auto-approve tools
@@ -29,9 +34,9 @@ func (b *Codex) Run(ctx context.Context, _ string, prompt string) (string, strin
 
 	output, err := cmd.Output()
 	if err != nil {
-		return "", "", fmtExecError("codex", err)
+		return "", fmtExecError("codex", err)
 	}
-	return strings.TrimSpace(string(output)), "", nil // No session ID
+	return strings.TrimSpace(string(output)), nil
 }
 
 func (b *Codex) Available() bool {

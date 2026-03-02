@@ -13,15 +13,18 @@ type ClaudeCode struct {
 	workDir string
 }
 
-func (b *ClaudeCode) Run(ctx context.Context, cliSessionID string, prompt string) (string, string, error) {
+func (b *ClaudeCode) Run(ctx context.Context, opts RunOpts, prompt string) (string, error) {
 	args := []string{
 		"-p", prompt,
 		"--output-format", "json",
 		"--dangerously-skip-permissions", // non-interactive subprocess, must auto-approve tools
 	}
 
-	if cliSessionID != "" {
-		args = append(args, "--resume", cliSessionID)
+	if opts.SystemPrompt != "" {
+		args = append(args, "--system-prompt", opts.SystemPrompt)
+	}
+	if opts.SessionID != "" {
+		args = append(args, "--resume", opts.SessionID)
 	}
 	if b.model != "" {
 		args = append(args, "--model", b.model)
@@ -34,7 +37,7 @@ func (b *ClaudeCode) Run(ctx context.Context, cliSessionID string, prompt string
 
 	output, err := cmd.Output()
 	if err != nil {
-		return "", "", fmtExecError("claude", err)
+		return "", fmtExecError("claude", err)
 	}
 
 	// Parse JSON output: {"result": "...", "session_id": "..."}
@@ -44,9 +47,9 @@ func (b *ClaudeCode) Run(ctx context.Context, cliSessionID string, prompt string
 	}
 	if err := sonic.Unmarshal(output, &result); err != nil {
 		// Fallback: treat entire output as plain text.
-		return string(output), "", nil
+		return string(output), nil
 	}
-	return result.Result, result.SessionID, nil
+	return result.Result, nil
 }
 
 func (b *ClaudeCode) Available() bool {

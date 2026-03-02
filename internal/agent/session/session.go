@@ -52,6 +52,7 @@ func (s *Session) Clear() {
 
 	s.messages = s.messages[:0]
 	s.msgCnt = 0
+	s.metadata = nil
 	s.updateTime = time.Now()
 	s.markMutationLocked()
 }

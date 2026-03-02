@@ -244,6 +244,8 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 
 	var resp *channel.Response
 	models := append([]string{agCfg.Models.Primary}, agCfg.Models.Fallback...)
+	ch, _ := channel.Get(msg.ChannelID)
+	var modelErrors []string
 	for _, spec := range models {
 		ms, err := provider.ParseModelSpec(spec)
 		if err != nil {
@@ -261,16 +263,22 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 		resp, err = ag.runLoop(ctx, prov, ms, sess, msg, agCfg.Config)
 		if err != nil {
 			logs.CtxWarn(ctx, "[agent:%s] model %s failed: %v", ag.id, ms, err)
+			errMsg := fmt.Sprintf("[%s] error: %v", spec, err)
+			modelErrors = append(modelErrors, errMsg)
+			if ch != nil {
+				_ = ch.SendMessage(ctx, msg.ChatID, errMsg)
+			}
 			continue
 		}
 		break
 	}
 
-	// fallback response
+	// fallback response — all models failed
 	if resp == nil {
+		fallbackContent := "All models failed:\n\n" + strings.Join(modelErrors, "\n")
 		resp = &channel.Response{
 			ID:      msg.ID,
-			Content: "System might be unavailable, please try again later.",
+			Content: fallbackContent,
 		}
 	}
 
@@ -371,6 +379,7 @@ func (ag *Agent) archiveSessionToDailyMemory(history []*schema.Message) error {
 // to memory files. Respects a cooldown to avoid excessive flushes.
 func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 	if ag.enqueue == nil || ag.consolidateEvery <= 0 {
+		logs.CtxDebug(ctx, "[agent:%s] flush skip: enqueue=%v consolidateEvery=%d", ag.id, ag.enqueue != nil, ag.consolidateEvery)
 		return
 	}
 
@@ -384,6 +393,7 @@ func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 		lastFlushCnt, _ = strconv.ParseInt(lastFlushCntStr, 10, 64)
 	}
 	if count-lastFlushCnt < threshold {
+		logs.CtxDebug(ctx, "[agent:%s] flush skip: count=%d lastFlushCnt=%d threshold=%d", ag.id, count, lastFlushCnt, threshold)
 		return
 	}
 
@@ -391,6 +401,7 @@ func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 	if lastFlush := sess.GetMeta("last_flush_at"); lastFlush != "" {
 		if t, err := time.Parse(time.RFC3339, lastFlush); err == nil {
 			if time.Since(t) < ag.flushCooldown {
+				logs.CtxDebug(ctx, "[agent:%s] flush skip: cooldown not elapsed, last=%s", ag.id, lastFlush)
 				return
 			}
 		}
@@ -400,6 +411,7 @@ func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 	now := time.Now()
 	prompt, hasWork := cronjob.BuildFlushPrompt(ag.workspace, now)
 	if !hasWork {
+		logs.CtxDebug(ctx, "[agent:%s] flush skip: no session activity to flush", ag.id)
 		return
 	}
 

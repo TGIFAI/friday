@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -67,25 +69,29 @@ func (p *Provider) Generate(ctx context.Context, modelName string, input []*sche
 	ctx, cancel := context.WithTimeout(ctx, p.config.Timeout)
 	defer cancel()
 
-	// Read stored CLI session ID from context-injected session.
+	// Derive a deterministic CLI session ID from the friday session key.
+	// This ties the CLI session to the friday session so that resume
+	// works across process restarts without storing extra metadata.
+	// SessionID is only set for resume (existing messages); on the first
+	// call the backend creates a fresh session.
 	sess := session.ExtractFromCtx(ctx)
-	var cliSessionID string
-	if sess != nil {
-		cliSessionID = sess.GetMeta("cli:session_id")
+	var opts RunOpts
+	resume := false
+	if sess != nil && sess.SessionKey != "" {
+		resume = sess.MsgCount() > 0
+		if resume {
+			opts.SessionID = hashSessionKey(sess.SessionKey)
+		}
 	}
 
-	// Build the text prompt from the message list.
-	prompt := buildPrompt(input, cliSessionID != "")
+	// Split system messages from conversation messages.
+	var prompt string
+	opts.SystemPrompt, prompt = buildPrompt(input, resume)
 
 	// Run the CLI backend.
-	response, newSessionID, err := p.backend.Run(ctx, cliSessionID, prompt)
+	response, err := p.backend.Run(ctx, opts, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("cli backend %s: %w", p.backend.Name(), err)
-	}
-
-	// Persist CLI session ID for future resume.
-	if sess != nil && newSessionID != "" {
-		sess.SetMeta("cli:session_id", newSessionID)
 	}
 
 	return &schema.Message{Role: schema.Assistant, Content: response}, nil
@@ -93,6 +99,13 @@ func (p *Provider) Generate(ctx context.Context, modelName string, input []*sche
 
 func (p *Provider) Stream(_ context.Context, _ string, _ []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	return nil, fmt.Errorf("cli provider does not support streaming")
+}
+
+// hashSessionKey produces a short hex string from a friday session key,
+// suitable as a deterministic CLI session identifier.
+func hashSessionKey(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:16]) // 32 hex chars
 }
 
 // fmtExecError wraps an exec error, including stderr when available.
@@ -104,32 +117,45 @@ func fmtExecError(bin string, err error) error {
 	return fmt.Errorf("%s cli: %w", bin, err)
 }
 
-// buildPrompt converts a slice of messages into a single text prompt.
+// buildPrompt converts a slice of messages into a system prompt and a
+// conversation prompt. System messages are returned separately so that
+// backends with native system-prompt support (e.g. Claude Code) can pass
+// them through the dedicated flag.
 // In resume mode (hasSession=true) only the latest user message is sent,
 // since the CLI already has the prior context from its own session.
-func buildPrompt(msgs []*schema.Message, hasSession bool) string {
+func buildPrompt(msgs []*schema.Message, hasSession bool) (systemPrompt string, prompt string) {
 	if len(msgs) == 0 {
-		return ""
+		return "", ""
 	}
+
+	// Collect system messages.
+	var sys strings.Builder
+	for _, m := range msgs {
+		if m.Role == schema.System {
+			if sys.Len() > 0 {
+				sys.WriteString("\n\n")
+			}
+			sys.WriteString(m.Content)
+		}
+	}
+	systemPrompt = strings.TrimSpace(sys.String())
 
 	if hasSession {
 		// Only send the latest user message.
 		for i := len(msgs) - 1; i >= 0; i-- {
 			if msgs[i].Role == schema.User {
-				return msgs[i].Content
+				return systemPrompt, msgs[i].Content
 			}
 		}
-		return msgs[len(msgs)-1].Content
+		return systemPrompt, msgs[len(msgs)-1].Content
 	}
 
-	// Full mode: render all messages as text.
+	// Full mode: render non-system messages as text.
 	var b strings.Builder
 	for _, m := range msgs {
 		switch m.Role {
 		case schema.System:
-			b.WriteString("[System]\n")
-			b.WriteString(m.Content)
-			b.WriteString("\n\n")
+			// Already extracted above.
 		case schema.User:
 			b.WriteString("[User]\n")
 			b.WriteString(m.Content)
@@ -142,5 +168,5 @@ func buildPrompt(msgs []*schema.Message, hasSession bool) string {
 			// Skip tool messages — the CLI handles tools internally.
 		}
 	}
-	return strings.TrimSpace(b.String())
+	return systemPrompt, strings.TrimSpace(b.String())
 }

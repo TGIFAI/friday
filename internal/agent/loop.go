@@ -25,7 +25,7 @@ const (
 func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *provider.ModelSpec, sess *session.Session, msg *channel.Message, cfg config.AgentRuntimeConfig) (*channel.Response, error) {
 	// Inject session into context so CLI providers can access metadata.
 	ctx = session.WithContext(ctx, sess)
-	promptMsgs := ag.buildMessages(ctx, sess, msg)
+	promptMsgs := ag.buildMessages(ctx, sess, msg, p.Type())
 
 	// Include user message in the prompt but defer session persistence
 	// until the loop completes successfully, preventing orphaned user

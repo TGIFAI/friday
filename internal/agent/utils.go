@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 
@@ -16,18 +17,19 @@ import (
 
 // buildUserMessage constructs a schema.Message from a channel message.
 func buildUserMessage(msg *channel.Message) *schema.Message {
+	timePrefix := "msg time: " + time.Now().Format(time.RFC3339) + "\n"
+
 	if len(msg.Attachments) == 0 {
-		return &schema.Message{Role: schema.User, Content: msg.Content}
+		return &schema.Message{Role: schema.User, Content: timePrefix + msg.Content}
 	}
 
 	var parts []schema.MessageInputPart
 
-	if msg.Content != "" {
-		parts = append(parts, schema.MessageInputPart{
-			Type: schema.ChatMessagePartTypeText,
-			Text: msg.Content,
-		})
-	}
+	// Always prepend a time text part so the LLM knows when this message arrived.
+	parts = append(parts, schema.MessageInputPart{
+		Type: schema.ChatMessagePartTypeText,
+		Text: timePrefix + msg.Content,
+	})
 
 	for _, att := range msg.Attachments {
 		b64 := base64.StdEncoding.EncodeToString(att.Data)
