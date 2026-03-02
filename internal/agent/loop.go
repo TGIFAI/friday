@@ -26,11 +26,11 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 	// Inject session into context so CLI providers can access metadata.
 	ctx = session.WithContext(ctx, sess)
 	promptMsgs := ag.buildMessages(ctx, sess, msg, p.Type())
-
-	// Include user message in the prompt but defer session persistence
-	// until the loop completes successfully, preventing orphaned user
-	// messages when all models fail.
 	userMsg := buildUserMessage(msg)
+
+	// Check token budget and compact if needed.
+	promptMsgs = ag.maybeCompact(ctx, p, modelSpec, sess, promptMsgs, userMsg)
+
 	promptMsgs = append(promptMsgs, userMsg)
 
 	maxIterations := defaultMaxIterations

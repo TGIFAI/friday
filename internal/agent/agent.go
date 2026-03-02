@@ -52,6 +52,8 @@ type Agent struct {
 	enqueue          EnqueueFunc // allows agent to self-enqueue messages (set by gateway)
 	consolidateEvery int
 	flushCooldown    time.Duration
+	contextBudget    int
+	reserveTokens    int
 	toolsRegistered  sync.Map // providerID → true; ensures RegisterTools is called once per provider
 }
 
@@ -85,6 +87,15 @@ func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
 		flushCooldown = cd
 	}
 
+	contextBudget := cfg.Session.ContextBudget
+	if contextBudget <= 0 {
+		contextBudget = 128000
+	}
+	reserveTokens := cfg.Session.ReserveTokens
+	if reserveTokens <= 0 {
+		reserveTokens = 20000
+	}
+
 	ag := &Agent{
 		id:               cfg.ID,
 		name:             cfg.Name,
@@ -94,6 +105,8 @@ func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
 		skills:           skill.NewRegistry(cfg.Workspace),
 		consolidateEvery: consolidateEvery,
 		flushCooldown:    flushCooldown,
+		contextBudget:    contextBudget,
+		reserveTokens:    reserveTokens,
 	}
 
 	return ag, nil
