@@ -3,6 +3,7 @@ import SwiftUI
 struct PermissionsView: View {
     @ObservedObject var bookmarks: BookmarkManager
     @State private var selectedTab = 0
+    @State private var pathInput = ""
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -128,6 +129,39 @@ struct PermissionsView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
             }
+
+            Divider().padding(.horizontal, 16)
+
+            // Path input
+            HStack(spacing: 8) {
+                Image(systemName: "terminal")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                TextField(L10n.permPathPlaceholder, text: $pathInput)
+                    .font(FridayFont.mono)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        let trimmed = pathInput.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty else { return }
+                        bookmarks.addPath(from: trimmed)
+                        pathInput = ""
+                    }
+                Button {
+                    let trimmed = pathInput.trimmingCharacters(in: .whitespaces)
+                    guard !trimmed.isEmpty else { return }
+                    bookmarks.addPath(from: trimmed)
+                    pathInput = ""
+                } label: {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(pathInput.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? Color.secondary : Color.fridayAccent)
+                }
+                .buttonStyle(.plain)
+                .disabled(pathInput.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
 
             Divider().padding(.horizontal, 16)
 

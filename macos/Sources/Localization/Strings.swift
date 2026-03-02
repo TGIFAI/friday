@@ -80,6 +80,12 @@ enum L10n {
         )
     }
     static var permGrant: String { localized("Grant Access", "授权访问") }
+    static var permPathPlaceholder: String {
+        localized(
+            "Enter path, e.g. ~/.local or /opt/homebrew",
+            "输入路径，如 ~/.local 或 /opt/homebrew"
+        )
+    }
     static var permRemove: String { localized("Revoke Access", "撤销访问") }
     static var permHint: String {
         localized(

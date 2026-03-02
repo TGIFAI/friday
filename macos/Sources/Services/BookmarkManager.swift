@@ -100,6 +100,7 @@ final class BookmarkManager: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
         panel.message = L10n.permAddMessage
         panel.prompt = L10n.permGrant
 
@@ -216,6 +217,31 @@ final class BookmarkManager: ObservableObject {
         UserDefaults.standard.set(stored, forKey: Self.fileBookmarksKey)
     }
 
+    /// Add a path from user text input. Determines if it's a file or directory
+    /// and opens NSOpenPanel pre-navigated to it for user consent.
+    func addPath(from input: String) {
+        let expanded = NSString(string: input).expandingTildeInPath
+        let url = URL(fileURLWithPath: expanded)
+
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: expanded, isDirectory: &isDir)
+
+        if exists && isDir.boolValue {
+            addDirectory(url: url)
+        } else if exists {
+            addFile(url: url)
+        } else {
+            // Path doesn't exist yet — try the parent directory so the user
+            // can navigate to the intended location in the panel.
+            let parent = url.deletingLastPathComponent()
+            if FileManager.default.fileExists(atPath: parent.path) {
+                addDirectory(url: parent)
+            } else {
+                addDirectory()
+            }
+        }
+    }
+
     // MARK: - Allowed Paths
 
     /// All accessible paths as strings (for injecting into env).
@@ -259,6 +285,7 @@ final class BookmarkManager: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
         panel.directoryURL = url
         panel.message = L10n.permAddMessage
         panel.prompt = L10n.permGrant
