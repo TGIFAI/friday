@@ -379,6 +379,7 @@ func (ag *Agent) archiveSessionToDailyMemory(history []*schema.Message) error {
 // to memory files. Respects a cooldown to avoid excessive flushes.
 func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 	if ag.enqueue == nil || ag.consolidateEvery <= 0 {
+		logs.CtxDebug(ctx, "[agent:%s] flush skip: enqueue=%v consolidateEvery=%d", ag.id, ag.enqueue != nil, ag.consolidateEvery)
 		return
 	}
 
@@ -392,6 +393,7 @@ func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 		lastFlushCnt, _ = strconv.ParseInt(lastFlushCntStr, 10, 64)
 	}
 	if count-lastFlushCnt < threshold {
+		logs.CtxDebug(ctx, "[agent:%s] flush skip: count=%d lastFlushCnt=%d threshold=%d", ag.id, count, lastFlushCnt, threshold)
 		return
 	}
 
@@ -399,6 +401,7 @@ func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 	if lastFlush := sess.GetMeta("last_flush_at"); lastFlush != "" {
 		if t, err := time.Parse(time.RFC3339, lastFlush); err == nil {
 			if time.Since(t) < ag.flushCooldown {
+				logs.CtxDebug(ctx, "[agent:%s] flush skip: cooldown not elapsed, last=%s", ag.id, lastFlush)
 				return
 			}
 		}
@@ -408,6 +411,7 @@ func (ag *Agent) maybeEnqueueFlush(ctx context.Context, sess *session.Session) {
 	now := time.Now()
 	prompt, hasWork := cronjob.BuildFlushPrompt(ag.workspace, now)
 	if !hasWork {
+		logs.CtxDebug(ctx, "[agent:%s] flush skip: no session activity to flush", ag.id)
 		return
 	}
 
