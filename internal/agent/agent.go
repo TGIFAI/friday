@@ -234,7 +234,12 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 	}
 
 	// get or create current session
-	sess := ag.sessMgr.GetOrCreateFor(msg.ChannelType, msg.ChannelID, msg.ChatID)
+	var sess *session.Session
+	if msg.SessionKey != "" {
+		sess = ag.sessMgr.GetOrCreate(msg.SessionKey)
+	} else {
+		sess = ag.sessMgr.GetOrCreateFor(msg.ChannelType, msg.ChannelID, msg.ChatID)
+	}
 	msg.SessionKey = sess.SessionKey
 	defer func() {
 		if err := ag.sessMgr.Save(sess); err != nil {
@@ -284,6 +289,12 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 
 	// Check if session has crossed the consolidation threshold.
 	ag.maybeEnqueueFlush(ctx, sess)
+
+	// Clear isolated cron sessions to prevent unbounded history growth.
+	// Isolated sessions use key prefix "cron:" (vs "agent:" for main/heartbeat).
+	if msg.ChannelType == channel.Type("cron") && strings.HasPrefix(msg.SessionKey, "cron:") {
+		sess.Clear()
+	}
 
 	return resp, nil
 }
