@@ -57,6 +57,14 @@ type jsonlMessageRecord struct {
 	Message *schema.Message `json:"msg"`
 }
 
+type jsonlCompactRecord struct {
+	Type         string `json:"_type"`
+	At           string `json:"at"`
+	Version      int    `json:"version"`
+	RemovedCount int    `json:"removed_count"`
+	Summary      string `json:"summary"`
+}
+
 func NewJSONLManager(agentID string, workspace string) (*Manager, error) {
 	if workspace == "" {
 		return nil, fmt.Errorf("workspace cannot be empty")
@@ -107,9 +115,14 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
+	type compactState struct {
+		summary *schema.Message
+		version int
+	}
 	var (
-		meta *jsonlMetadataRecord
-		msgs = make([]*schema.Message, 0, 16)
+		meta        *jsonlMetadataRecord
+		msgs        = make([]*schema.Message, 0, 16)
+		compactMeta *compactState
 	)
 
 	for scanner.Scan() {
@@ -138,6 +151,21 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 			if r.Message != nil {
 				msgs = append(msgs, r.Message)
 			}
+		case "compact":
+			var cr jsonlCompactRecord
+			if err := sonic.UnmarshalString(line, &cr); err != nil {
+				return nil, fmt.Errorf("parse compact record: %w", err)
+			}
+			summaryMsg := &schema.Message{
+				Role:    schema.Assistant,
+				Content: cr.Summary,
+				Extra:   map[string]any{CompactionSummaryKey: true},
+			}
+			compactMeta = &compactState{
+				summary: summaryMsg,
+				version: cr.Version,
+			}
+			msgs = msgs[:0] // Reset — messages after compact record are the kept ones.
 		default:
 			// Ignore unknown record types for forward compatibility.
 		}
@@ -204,6 +232,11 @@ func (s *jsonlStore) Load(ctx context.Context, sessionKey string) (*Session, err
 		}
 	}
 
+	if compactMeta != nil {
+		sess.summaryMsg = compactMeta.summary
+		sess.compactVersion = compactMeta.version
+	}
+
 	return sess, nil
 }
 
@@ -240,6 +273,8 @@ func (s *jsonlStore) Save(ctx context.Context, sess *Session) error {
 		Schema:     jsonlSchema,
 		Metadata:   sess.metadata,
 	}
+	summaryMsg := sess.summaryMsg
+	compactVersion := sess.compactVersion
 	sess.mu.RUnlock()
 
 	if !dirty {
@@ -280,7 +315,7 @@ func (s *jsonlStore) Save(ctx context.Context, sess *Session) error {
 	}
 
 	if needCompact {
-		if err := s.rewrite(path, metaLine, messages); err != nil {
+		if err := s.rewriteWithCompact(path, metaLine, messages, summaryMsg, compactVersion); err != nil {
 			return err
 		}
 		s.markPersisted(sess, currentMsgLen, true, version)
@@ -314,6 +349,10 @@ func (s *jsonlStore) markPersisted(sess *Session, msgLen int, compacted bool, ex
 }
 
 func (s *jsonlStore) rewrite(path string, metaLine string, messages []*schema.Message) error {
+	return s.rewriteWithCompact(path, metaLine, messages, nil, 0)
+}
+
+func (s *jsonlStore) rewriteWithCompact(path string, metaLine string, messages []*schema.Message, summary *schema.Message, compactVersion int) error {
 	tmpPath := path + ".tmp"
 	out, err := os.Create(tmpPath)
 	if err != nil {
@@ -324,9 +363,40 @@ func (s *jsonlStore) rewrite(path string, metaLine string, messages []*schema.Me
 	}()
 
 	writer := bufio.NewWriter(out)
-	if err := writeJSONLBatch(writer, metaLine, messages); err != nil {
+	if _, err := writer.WriteString(metaLine + "\n"); err != nil {
 		_ = os.Remove(tmpPath)
-		return err
+		return fmt.Errorf("write metadata line: %w", err)
+	}
+	if summary != nil {
+		cr := jsonlCompactRecord{
+			Type:    "compact",
+			At:      time.Now().Format(time.RFC3339),
+			Version: compactVersion,
+			Summary: summary.Content,
+		}
+		line, err := sonic.MarshalString(cr)
+		if err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("marshal compact record: %w", err)
+		}
+		if _, err := writer.WriteString(line + "\n"); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("write compact record: %w", err)
+		}
+	}
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		line, err := marshalMessageLine(msg)
+		if err != nil {
+			_ = os.Remove(tmpPath)
+			return err
+		}
+		if _, err := writer.WriteString(line + "\n"); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("write message line: %w", err)
+		}
 	}
 	if err := writer.Flush(); err != nil {
 		_ = os.Remove(tmpPath)
@@ -340,7 +410,6 @@ func (s *jsonlStore) rewrite(path string, metaLine string, messages []*schema.Me
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("replace session file: %w", err)
 	}
-
 	return nil
 }
 
