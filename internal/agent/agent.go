@@ -244,6 +244,7 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 
 	var resp *channel.Response
 	models := append([]string{agCfg.Models.Primary}, agCfg.Models.Fallback...)
+	ch, _ := channel.Get(msg.ChannelID)
 	for _, spec := range models {
 		ms, err := provider.ParseModelSpec(spec)
 		if err != nil {
@@ -261,6 +262,9 @@ func (ag *Agent) ProcessMessage(ctx context.Context, msg *channel.Message) (*cha
 		resp, err = ag.runLoop(ctx, prov, ms, sess, msg, agCfg.Config)
 		if err != nil {
 			logs.CtxWarn(ctx, "[agent:%s] model %s failed: %v", ag.id, ms, err)
+			if ch != nil {
+				_ = ch.SendMessage(ctx, msg.ChatID, fmt.Sprintf("[%s] error: %v", spec, err))
+			}
 			continue
 		}
 		break
