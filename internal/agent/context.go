@@ -24,11 +24,11 @@ const (
 	promptHashSep     = "\x00" // null byte separator to avoid field-boundary collisions
 )
 
-func (ag *Agent) buildMessages(ctx context.Context, sess *session.Session, msg *channel.Message) []*schema.Message {
+func (ag *Agent) buildMessages(ctx context.Context, sess *session.Session, msg *channel.Message, provType provider.Type) []*schema.Message {
 	msgs := make([]*schema.Message, 0, 32)
 
 	// System ①: built-in definitions (binary-stable, highest cache value)
-	builtinText := ag.buildBuiltinPrompt()
+	builtinText := ag.buildBuiltinPrompt(provType)
 	if builtinText != "" {
 		msgs = append(msgs, &schema.Message{Role: schema.System, Content: builtinText, Extra: map[string]any{provider.L0Cache: true}})
 	}
@@ -69,13 +69,17 @@ func (ag *Agent) buildMessages(ctx context.Context, sess *session.Session, msg *
 // buildBuiltinPrompt returns the binary-stable system prompt containing
 // built-in tool definitions and built-in skills. This content only changes
 // when the binary is rebuilt, making it ideal for prefix caching.
-func (ag *Agent) buildBuiltinPrompt() string {
+func (ag *Agent) buildBuiltinPrompt(provType provider.Type) string {
 	var b strings.Builder
 	b.Grow(1 << 11)
 
 	// Built-in tool definitions from embedded const.
-	if text := strings.TrimSpace(consts.WorkspaceToolsTemplate); text != "" {
-		b.WriteString(text)
+	// CLI providers (e.g. claude-code, codex) handle tools internally,
+	// so skip injecting tool definitions for them.
+	if provType != provider.CLI {
+		if text := strings.TrimSpace(consts.WorkspaceToolsTemplate); text != "" {
+			b.WriteString(text)
+		}
 	}
 
 	// Built-in skills.
