@@ -68,6 +68,10 @@ agents:
       consolidate_every: 50
       # Minimum interval between mid-conversation flushes.
       flush_cooldown: "2h"
+      # Total context window size in tokens for compaction threshold.
+      context_budget: 128000
+      # Tokens reserved for new user message and LLM response.
+      reserve_tokens: 20000
 
 # Channel definitions. Key = channel ID.
 channels:

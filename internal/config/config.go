@@ -71,6 +71,8 @@ type (
 		TTL              string `yaml:"ttl"`               // e.g. "24h", session expiry after last activity
 		ConsolidateEvery int    `yaml:"consolidate_every"`  // trigger memory flush every N messages (default: 50)
 		FlushCooldown    string `yaml:"flush_cooldown"`     // minimum interval between flushes (default: "2h")
+		ContextBudget    int    `yaml:"context_budget"`     // model context window (tokens), default 128000
+		ReserveTokens    int    `yaml:"reserve_tokens"`     // tokens reserved for new messages + reply, default 20000
 	}
 
 	ChannelConfig struct {
