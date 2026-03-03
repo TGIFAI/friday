@@ -109,6 +109,14 @@ func (r *GatewayRunner) initCronjob(ctx context.Context, cfg *config.Config, gw 
 
 	cronjob.Init(cfg.Cronjob, gw.Enqueue)
 
+	// Start (which calls store.Load) MUST happen before AddJob so that
+	// Load's map replacement does not wipe the freshly registered built-in
+	// jobs. AddJob's idempotent update logic handles the case where a stale
+	// entry was loaded from disk.
+	if err := cronjob.Start(ctx); err != nil {
+		return err
+	}
+
 	s := cronjob.Default()
 	for id, agCfg := range cfg.Agents {
 		hbJob := cronjob.NewHeartbeatJob(id, agCfg.Workspace, 0)
@@ -127,7 +135,7 @@ func (r *GatewayRunner) initCronjob(ctx context.Context, cfg *config.Config, gw 
 		}
 	}
 
-	return cronjob.Start(ctx)
+	return nil
 }
 
 func (r *GatewayRunner) initLogger(cfg config.LoggingConfig) error {

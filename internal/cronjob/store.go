@@ -52,7 +52,7 @@ func (s *Store) Load() error {
 		// Heartbeat and compact jobs are always re-registered at startup
 		// by the gateway with fresh runtime fields (Workspace, etc.).
 		// Discard any that were accidentally persisted to avoid stale state.
-		if IsHeartbeatJob(j.ID) || IsCompactJob(j.ID) {
+		if IsHeartbeatJob(j.ID) || IsCompactJob(j.ID) || IsFlushJob(j.ID) {
 			continue
 		}
 		s.jobs[j.ID] = j
