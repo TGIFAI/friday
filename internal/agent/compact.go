@@ -6,6 +6,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/eino/schema"
+	"github.com/tgifai/friday/internal/consts"
 
 	"github.com/tgifai/friday/internal/agent/session"
 	"github.com/tgifai/friday/internal/pkg/logs"
@@ -15,6 +16,8 @@ import (
 const (
 	preFlushMaxIterations = 3
 	minKeepTurns          = 2
+	
+	flushSkipSentinel = "FLUSH_SKIP"
 )
 
 // maybeCompact checks whether the prompt messages exceed the context budget
@@ -89,7 +92,7 @@ func (ag *Agent) runPreFlush(
 	flushMsgs = append(flushMsgs, userMsg)
 	flushMsgs = append(flushMsgs, &schema.Message{
 		Role:    schema.System,
-		Content: preFlushPrompt,
+		Content: consts.PromptPreFlush,
 	})
 
 	for iter := 0; iter < preFlushMaxIterations; iter++ {
@@ -161,7 +164,7 @@ func (ag *Agent) generateSummary(
 	summaryMsgs := make([]*schema.Message, 0, len(truncated)+1)
 	summaryMsgs = append(summaryMsgs, &schema.Message{
 		Role:    schema.System,
-		Content: summaryPrompt,
+		Content: consts.PromptSummary,
 	})
 	summaryMsgs = append(summaryMsgs, truncated...)
 
