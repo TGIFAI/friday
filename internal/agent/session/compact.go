@@ -1,11 +1,7 @@
 // internal/agent/session/compact.go
 package session
 
-import (
-	"time"
-
-	"github.com/cloudwego/eino/schema"
-)
+import "github.com/cloudwego/eino/schema"
 
 const CompactionSummaryKey = "compaction_summary"
 
@@ -38,7 +34,6 @@ func (s *Session) Compact(summary *schema.Message, keepCount int) {
 	s.messages = kept
 
 	s.summaryMsg = summary
-	s.compactedAt = time.Now()
 	s.compactVersion++
 
 	// Reset persisted state so next Save does a full rewrite.

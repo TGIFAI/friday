@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/bytedance/sonic"
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/tgifai/friday/internal/agent/session"
@@ -11,7 +12,10 @@ import (
 	"github.com/tgifai/friday/internal/provider"
 )
 
-const preFlushMaxIterations = 3
+const (
+	preFlushMaxIterations = 3
+	minKeepTurns          = 2
+)
 
 // maybeCompact checks whether the prompt messages exceed the context budget
 // and, if so, runs the compaction pipeline: pre-flush → summarize → compact.
@@ -29,10 +33,8 @@ func (ag *Agent) maybeCompact(
 		return promptMsgs
 	}
 
-	allMsgs := make([]*schema.Message, 0, len(promptMsgs)+1)
-	allMsgs = append(allMsgs, promptMsgs...)
-	allMsgs = append(allMsgs, userMsg)
-	estimated := session.EstimateTokens(allMsgs)
+	// Estimate without allocating a combined slice.
+	estimated := session.EstimateTokens(promptMsgs) + session.EstimateMessageTokens(userMsg)
 	if estimated <= threshold {
 		return promptMsgs
 	}
@@ -54,7 +56,7 @@ func (ag *Agent) maybeCompact(
 		oldMsgs = history[:len(history)-keepCount]
 	}
 
-	summary := ag.generateSummary(ctx, p, modelSpec, oldMsgs)
+	summary := ag.generateSummary(ctx, p, modelSpec, oldMsgs, threshold)
 	if summary == nil {
 		// Fallback: trim without summary.
 		logs.CtxWarn(ctx, "[agent:%s] summary generation failed, falling back to trim", ag.id)
@@ -110,22 +112,7 @@ func (ag *Agent) runPreFlush(
 		if len(resp.ToolCalls) > 0 {
 			flushMsgs = append(flushMsgs, resp)
 			for _, call := range resp.ToolCalls {
-				res, callErr := ag.tools.ExecuteToolCall(ctx, &call)
-				callMsg := &schema.Message{
-					Role:       schema.Tool,
-					ToolName:   call.Function.Name,
-					ToolCallID: call.ID,
-				}
-				if callErr != nil {
-					callMsg.Content = "ERROR: " + callErr.Error()
-				} else {
-					callMsg.Content = "{}"
-					if res != nil {
-						if s, ok := res.(string); ok {
-							callMsg.Content = s
-						}
-					}
-				}
+				callMsg := ag.buildToolResultMessage(ctx, &call)
 				flushMsgs = append(flushMsgs, callMsg)
 			}
 			continue
@@ -136,19 +123,47 @@ func (ag *Agent) runPreFlush(
 	}
 }
 
+// buildToolResultMessage executes a tool call and returns the result as a Tool message.
+// This is the shared helper used by both runLoop and runPreFlush.
+func (ag *Agent) buildToolResultMessage(ctx context.Context, call *schema.ToolCall) *schema.Message {
+	res, callErr := ag.tools.ExecuteToolCall(ctx, call)
+	callMsg := &schema.Message{
+		Role:       schema.Tool,
+		ToolName:   call.Function.Name,
+		ToolCallID: call.ID,
+	}
+	if callErr != nil {
+		callMsg.Content = "ERROR: " + callErr.Error()
+	} else {
+		jsonStr, marshalErr := sonic.MarshalString(res)
+		if marshalErr != nil || jsonStr == "" {
+			callMsg.Content = "{}"
+		} else {
+			callMsg.Content = jsonStr
+		}
+	}
+	return callMsg
+}
+
 // generateSummary asks the LLM to summarize old messages. Returns nil on failure.
+// Truncates oldMsgs to fit within tokenBudget to avoid exceeding the context window.
 func (ag *Agent) generateSummary(
 	ctx context.Context,
 	p provider.Provider,
 	modelSpec *provider.ModelSpec,
 	oldMsgs []*schema.Message,
+	tokenBudget int,
 ) *schema.Message {
-	summaryMsgs := make([]*schema.Message, 0, len(oldMsgs)+1)
+	// Truncate oldMsgs to fit within the token budget so the summary call
+	// itself doesn't exceed the model's context window.
+	truncated := truncateToFit(oldMsgs, tokenBudget)
+
+	summaryMsgs := make([]*schema.Message, 0, len(truncated)+1)
 	summaryMsgs = append(summaryMsgs, &schema.Message{
 		Role:    schema.System,
 		Content: summaryPrompt,
 	})
-	summaryMsgs = append(summaryMsgs, oldMsgs...)
+	summaryMsgs = append(summaryMsgs, truncated...)
 
 	resp, err := p.Generate(ctx, modelSpec.ModelName, summaryMsgs)
 	if err != nil {
@@ -165,8 +180,29 @@ func (ag *Agent) generateSummary(
 	}
 }
 
+// truncateToFit returns the most recent messages from msgs that fit within
+// the given token budget. Keeps messages from the tail (newest first).
+func truncateToFit(msgs []*schema.Message, tokenBudget int) []*schema.Message {
+	total := session.EstimateTokens(msgs)
+	if total <= tokenBudget {
+		return msgs
+	}
+	// Walk from tail, accumulate until budget is exceeded.
+	used := 0
+	start := len(msgs)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		t := session.EstimateMessageTokens(msgs[i])
+		if used+t > tokenBudget {
+			break
+		}
+		used += t
+		start = i
+	}
+	return msgs[start:]
+}
+
 // calculateKeepCount determines how many recent messages to keep based on
-// a token budget. Always keeps at least 2 complete turns.
+// a token budget. Always keeps at least minKeepTurns complete turns.
 func calculateKeepCount(messages []*schema.Message, tokenBudget int) int {
 	if len(messages) == 0 {
 		return 0
@@ -174,10 +210,10 @@ func calculateKeepCount(messages []*schema.Message, tokenBudget int) int {
 
 	used := 0
 	count := 0
-	minKeep := findMinKeepForTurns(messages, 2)
+	minKeep := findMinKeepForTurns(messages, minKeepTurns)
 
 	for i := len(messages) - 1; i >= 0; i-- {
-		msgTokens := session.EstimateTokens([]*schema.Message{messages[i]})
+		msgTokens := session.EstimateMessageTokens(messages[i])
 		if used+msgTokens > tokenBudget && count >= minKeep {
 			break
 		}

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -70,22 +71,9 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 			msgs = append(msgs, llmResp)
 			for _, call := range llmResp.ToolCalls {
 				logs.CtxDebug(ctx, "[agent:%s:%d] call: %+v", ag.id, iter, call)
-				res, callErr := ag.tools.ExecuteToolCall(ctx, &call)
-				callMsg := &schema.Message{
-					Role:       schema.Tool,
-					ToolName:   call.Function.Name,
-					ToolCallID: call.ID,
-				}
-				if callErr != nil {
-					logs.CtxWarn(ctx, "[agent:%s] tool %q (call_id=%s) failed: %v", ag.id, call.Function.Name, call.ID, callErr)
-					callMsg.Content = "ERROR: " + callErr.Error()
-				} else {
-					jsonStr, marshalErr := sonic.MarshalString(res)
-					if marshalErr != nil || jsonStr == "" {
-						callMsg.Content = "{}"
-					} else {
-						callMsg.Content = jsonStr
-					}
+				callMsg := ag.buildToolResultMessage(ctx, &call)
+				if callMsg.Content != "" && strings.HasPrefix(callMsg.Content, "ERROR: ") {
+					logs.CtxWarn(ctx, "[agent:%s] tool %q (call_id=%s) failed: %s", ag.id, call.Function.Name, call.ID, callMsg.Content)
 				}
 				msgs = append(msgs, callMsg)
 			}

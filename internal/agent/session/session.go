@@ -35,7 +35,6 @@ type Session struct {
 	persistedMsgLen int
 	appendSaveCnt   int
 
-	compactedAt    time.Time       // last compaction timestamp
 	summaryMsg     *schema.Message // active compaction summary (nil = never compacted)
 	compactVersion int             // number of compactions performed
 
@@ -64,7 +63,6 @@ func (s *Session) Clear() {
 	s.msgCnt = 0
 	s.metadata = nil
 	s.summaryMsg = nil
-	s.compactedAt = time.Time{}
 	s.compactVersion = 0
 	s.updateTime = time.Now()
 	s.markMutationLocked()

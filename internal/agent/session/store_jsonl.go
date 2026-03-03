@@ -58,11 +58,10 @@ type jsonlMessageRecord struct {
 }
 
 type jsonlCompactRecord struct {
-	Type         string `json:"_type"`
-	At           string `json:"at"`
-	Version      int    `json:"version"`
-	RemovedCount int    `json:"removed_count"`
-	Summary      string `json:"summary"`
+	Type    string `json:"_type"`
+	At      string `json:"at"`
+	Version int    `json:"version"`
+	Summary string `json:"summary"`
 }
 
 func NewJSONLManager(agentID string, workspace string) (*Manager, error) {
@@ -358,15 +357,14 @@ func (s *jsonlStore) rewriteWithCompact(path string, metaLine string, messages [
 	if err != nil {
 		return fmt.Errorf("create temp session file: %w", err)
 	}
-	defer func() {
+	cleanup := func() {
 		_ = out.Close()
-	}()
+		_ = os.Remove(tmpPath)
+	}
 
 	writer := bufio.NewWriter(out)
-	if _, err := writer.WriteString(metaLine + "\n"); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write metadata line: %w", err)
-	}
+
+	// Write compact record before messages if session has been compacted.
 	if summary != nil {
 		cr := jsonlCompactRecord{
 			Type:    "compact",
@@ -374,32 +372,33 @@ func (s *jsonlStore) rewriteWithCompact(path string, metaLine string, messages [
 			Version: compactVersion,
 			Summary: summary.Content,
 		}
-		line, err := sonic.MarshalString(cr)
-		if err != nil {
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("marshal compact record: %w", err)
+		compactLine, marshalErr := sonic.MarshalString(cr)
+		if marshalErr != nil {
+			cleanup()
+			return fmt.Errorf("marshal compact record: %w", marshalErr)
 		}
-		if _, err := writer.WriteString(line + "\n"); err != nil {
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("write compact record: %w", err)
+		// Write meta, compact record, then messages via writeJSONLBatch for messages only.
+		if _, writeErr := writer.WriteString(metaLine + "\n"); writeErr != nil {
+			cleanup()
+			return fmt.Errorf("write metadata line: %w", writeErr)
+		}
+		if _, writeErr := writer.WriteString(compactLine + "\n"); writeErr != nil {
+			cleanup()
+			return fmt.Errorf("write compact record: %w", writeErr)
+		}
+		if writeErr := writeMessages(writer, messages); writeErr != nil {
+			cleanup()
+			return writeErr
+		}
+	} else {
+		if writeErr := writeJSONLBatch(writer, metaLine, messages); writeErr != nil {
+			cleanup()
+			return writeErr
 		}
 	}
-	for _, msg := range messages {
-		if msg == nil {
-			continue
-		}
-		line, err := marshalMessageLine(msg)
-		if err != nil {
-			_ = os.Remove(tmpPath)
-			return err
-		}
-		if _, err := writer.WriteString(line + "\n"); err != nil {
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("write message line: %w", err)
-		}
-	}
+
 	if err := writer.Flush(); err != nil {
-		_ = os.Remove(tmpPath)
+		cleanup()
 		return fmt.Errorf("flush session file: %w", err)
 	}
 	if err := out.Close(); err != nil {
@@ -434,6 +433,10 @@ func writeJSONLBatch(writer *bufio.Writer, metaLine string, messages []*schema.M
 	if _, err := writer.WriteString(metaLine + "\n"); err != nil {
 		return fmt.Errorf("write metadata line: %w", err)
 	}
+	return writeMessages(writer, messages)
+}
+
+func writeMessages(writer *bufio.Writer, messages []*schema.Message) error {
 	for _, msg := range messages {
 		if msg == nil {
 			continue

@@ -17,13 +17,23 @@ func TestEstimateTokens_Empty(t *testing.T) {
 
 func TestEstimateTokens_TextOnly(t *testing.T) {
 	msgs := []*schema.Message{
-		{Role: schema.User, Content: "Hello world"},   // 11 chars → 2 tokens
-		{Role: schema.Assistant, Content: "Hi there!"}, // 9 chars → 2 tokens
+		{Role: schema.User, Content: "Hello world"},   // 11 bytes → 11/4 = 2 tokens
+		{Role: schema.Assistant, Content: "Hi there!"}, // 9 bytes → 9/4 = 2 tokens
 	}
 	got := EstimateTokens(msgs)
-	// (11+9)/4 = 5
-	if got != 5 {
-		t.Errorf("EstimateTokens = %d, want 5", got)
+	// 11/4 + 9/4 = 2 + 2 = 4 (per-message integer division)
+	if got != 4 {
+		t.Errorf("EstimateTokens = %d, want 4", got)
+	}
+}
+
+func TestEstimateMessageTokens(t *testing.T) {
+	if got := EstimateMessageTokens(nil); got != 0 {
+		t.Errorf("EstimateMessageTokens(nil) = %d, want 0", got)
+	}
+	msg := &schema.Message{Role: schema.User, Content: "Hello world"} // 11 bytes → 2
+	if got := EstimateMessageTokens(msg); got != 2 {
+		t.Errorf("EstimateMessageTokens = %d, want 2", got)
 	}
 }
 

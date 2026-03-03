@@ -36,6 +36,11 @@ import (
 	"github.com/tgifai/friday/internal/provider"
 )
 
+const (
+	defaultContextBudget = 128000
+	defaultReserveTokens = 20000
+)
+
 // EnqueueFunc is a callback to submit messages into the gateway pipeline.
 type EnqueueFunc func(ctx context.Context, msg *channel.Message) error
 
@@ -89,11 +94,11 @@ func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
 
 	contextBudget := cfg.Session.ContextBudget
 	if contextBudget <= 0 {
-		contextBudget = 128000
+		contextBudget = defaultContextBudget
 	}
 	reserveTokens := cfg.Session.ReserveTokens
 	if reserveTokens <= 0 {
-		reserveTokens = 20000
+		reserveTokens = defaultReserveTokens
 	}
 
 	ag := &Agent{
