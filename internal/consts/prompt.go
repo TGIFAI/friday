@@ -11,7 +11,7 @@ Use the file_write tool to save to memory/MEMORY.md (durable facts) or memory/da
 
 If nothing important needs saving, respond with "FLUSH_SKIP".`
 
-const PromptSummary = `Summarize the following conversation history concisely. Preserve:
+const PromptSummary = `You are a helpful AI assistant tasked with summarizing conversations. Summarize the following conversation history concisely. Preserve:
 - Key decisions and their reasoning
 - Important file paths, function names, and code changes
 - Task progress: what was completed, what remains

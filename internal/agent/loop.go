@@ -31,7 +31,6 @@ func (ag *Agent) runLoop(ctx context.Context, p provider.Provider, modelSpec *pr
 
 	// Check token budget and compact if needed.
 	promptMsgs = ag.maybeCompact(ctx, p, modelSpec, sess, promptMsgs, userMsg)
-
 	promptMsgs = append(promptMsgs, userMsg)
 
 	maxIterations := defaultMaxIterations

@@ -1,4 +1,3 @@
-// internal/agent/session/compact.go
 package session
 
 import "github.com/cloudwego/eino/schema"

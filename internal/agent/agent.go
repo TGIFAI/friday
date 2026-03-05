@@ -37,8 +37,8 @@ import (
 )
 
 const (
-	defaultContextBudget = 128000
-	defaultReserveTokens = 20000
+	defaultContextBudget = 128_000 // 128k
+	defaultReserveTokens = 20_000
 )
 
 // EnqueueFunc is a callback to submit messages into the gateway pipeline.

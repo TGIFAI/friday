@@ -1,4 +1,3 @@
-// internal/agent/session/compact_test.go
 package session
 
 import (
