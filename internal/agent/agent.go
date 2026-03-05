@@ -36,6 +36,11 @@ import (
 	"github.com/tgifai/friday/internal/provider"
 )
 
+const (
+	defaultContextBudget = 128_000 // 128k
+	defaultReserveTokens = 20_000
+)
+
 // EnqueueFunc is a callback to submit messages into the gateway pipeline.
 type EnqueueFunc func(ctx context.Context, msg *channel.Message) error
 
@@ -52,6 +57,8 @@ type Agent struct {
 	enqueue          EnqueueFunc // allows agent to self-enqueue messages (set by gateway)
 	consolidateEvery int
 	flushCooldown    time.Duration
+	contextBudget    int
+	reserveTokens    int
 	toolsRegistered  sync.Map // providerID → true; ensures RegisterTools is called once per provider
 }
 
@@ -85,6 +92,15 @@ func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
 		flushCooldown = cd
 	}
 
+	contextBudget := cfg.Session.ContextBudget
+	if contextBudget <= 0 {
+		contextBudget = defaultContextBudget
+	}
+	reserveTokens := cfg.Session.ReserveTokens
+	if reserveTokens <= 0 {
+		reserveTokens = defaultReserveTokens
+	}
+
 	ag := &Agent{
 		id:               cfg.ID,
 		name:             cfg.Name,
@@ -94,6 +110,8 @@ func NewAgent(_ context.Context, cfg config.AgentConfig) (*Agent, error) {
 		skills:           skill.NewRegistry(cfg.Workspace),
 		consolidateEvery: consolidateEvery,
 		flushCooldown:    flushCooldown,
+		contextBudget:    contextBudget,
+		reserveTokens:    reserveTokens,
 	}
 
 	return ag, nil

@@ -35,12 +35,21 @@ type Session struct {
 	persistedMsgLen int
 	appendSaveCnt   int
 
+	summaryMsg     *schema.Message // active compaction summary (nil = never compacted)
+	compactVersion int             // number of compactions performed
+
 	mu sync.RWMutex
 }
 
 func (s *Session) History() []*schema.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.summaryMsg != nil {
+		msgs := make([]*schema.Message, 0, 1+len(s.messages))
+		msgs = append(msgs, s.summaryMsg)
+		msgs = append(msgs, s.messages...)
+		return msgs
+	}
 	msgs := make([]*schema.Message, len(s.messages))
 	copy(msgs, s.messages)
 	return msgs
@@ -53,6 +62,8 @@ func (s *Session) Clear() {
 	s.messages = s.messages[:0]
 	s.msgCnt = 0
 	s.metadata = nil
+	s.summaryMsg = nil
+	s.compactVersion = 0
 	s.updateTime = time.Now()
 	s.markMutationLocked()
 }
